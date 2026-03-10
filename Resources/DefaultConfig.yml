@@ -1,0 +1,15 @@
+font:
+  family: "Menlo"
+  size: 14
+  lineHeight: 1.2
+
+theme: "dark"
+
+window:
+  opacity: 1.0
+  restore_state: true
+
+notifications:
+  agent_needs_input: true
+  agent_error: true
+  process_exited: false

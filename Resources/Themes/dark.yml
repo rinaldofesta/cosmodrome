@@ -1,0 +1,27 @@
+name: "Dark"
+
+colors:
+  foreground: "#D9D9D9"
+  background: "#1A1A1F"
+  cursor: "#D9D9D9"
+  selection: "#3A3A4A"
+
+  # ANSI colors
+  black: "#000000"
+  red: "#CC3333"
+  green: "#33CC33"
+  yellow: "#CCCC33"
+  blue: "#4D66CC"
+  magenta: "#CC33CC"
+  cyan: "#33CCCC"
+  white: "#BFBFBF"
+
+  # Bright ANSI colors
+  bright_black: "#666666"
+  bright_red: "#FF4D4D"
+  bright_green: "#4DFF4D"
+  bright_yellow: "#FFFF4D"
+  bright_blue: "#6680FF"
+  bright_magenta: "#FF4DFF"
+  bright_cyan: "#4DFFFF"
+  bright_white: "#FFFFFF"

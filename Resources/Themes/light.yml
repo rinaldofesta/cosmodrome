@@ -1,0 +1,25 @@
+name: "Light"
+
+colors:
+  foreground: "#1A1A1F"
+  background: "#F5F5F5"
+  cursor: "#1A1A1F"
+  selection: "#C0C0D0"
+
+  black: "#000000"
+  red: "#CC3333"
+  green: "#228B22"
+  yellow: "#B8860B"
+  blue: "#3333CC"
+  magenta: "#8B008B"
+  cyan: "#008B8B"
+  white: "#BFBFBF"
+
+  bright_black: "#666666"
+  bright_red: "#FF4D4D"
+  bright_green: "#32CD32"
+  bright_yellow: "#DAA520"
+  bright_blue: "#4169E1"
+  bright_magenta: "#DA70D6"
+  bright_cyan: "#00CED1"
+  bright_white: "#FFFFFF"
