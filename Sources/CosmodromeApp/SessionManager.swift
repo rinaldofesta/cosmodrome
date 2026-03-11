@@ -17,6 +17,8 @@ final class SessionManager {
     private(set) var detectors: [UUID: AgentDetector] = [:]
     /// Throttle for runtime agent detection in shell sessions.
     private var lastAgentCheck: [UUID: Date] = [:]
+    /// Tracks when a session was upgraded to agent (for adaptive throttle).
+    private var agentUpgradeTime: [UUID: Date] = [:]
     /// Lock for dicts accessed from both I/O and main threads.
     private let stateLock = NSLock()
 
@@ -128,9 +130,11 @@ final class SessionManager {
         }
 
         if let detector {
+            detector.stats = session.stats
             stateLock.lock()
             detectors[session.id] = detector
             stateLock.unlock()
+            agentUpgradeTime[session.id] = Date()
         }
 
         session.backend = backend
@@ -332,6 +336,7 @@ final class SessionManager {
         detectors.removeValue(forKey: session.id)
         lastAgentCheck.removeValue(forKey: session.id)
         stateLock.unlock()
+        agentUpgradeTime.removeValue(forKey: session.id)
     }
 
     /// Start all auto-start sessions in a project.
@@ -407,12 +412,14 @@ final class SessionManager {
         lastAgentCheck[session.id] = now
         stateLock.unlock()
 
-        // Read last few lines from the terminal buffer
+        // Read bottom half of the terminal buffer (12 rows).
+        // Claude Code's TUI fills the entire screen; 5 rows was too narrow.
         backend.lock()
         let rows = backend.rows
         let cols = backend.cols
+        let scanRows = min(rows, 12)
         var text = ""
-        for row in max(0, rows - 5)..<rows {
+        for row in max(0, rows - scanRows)..<rows {
             for col in 0..<cols {
                 let cell = backend.cell(row: row, col: col)
                 let cp = cell.codepoint
@@ -426,11 +433,24 @@ final class SessionManager {
         }
         backend.unlock()
 
-        // Detect agent startup signatures — use spinner chars (reliable, no false positives)
+        Self.debugLog("checkForAgentStartup: session=\(session.name) scanning \(scanRows) rows, text=\(text.prefix(300))")
+
+        // Detect agent startup signatures.
+        // Claude Code: spinner chars, status bar signatures, welcome text, or TUI elements.
         let agentType: String?
         if text.range(of: #"[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]"#, options: .regularExpression) != nil {
             agentType = "claude"
-        } else if text.range(of: #"(?i)\baider\s*>"#, options: .regularExpression) != nil {
+        } else if text.range(of: #"ctx:\s*\d+"#, options: .regularExpression) != nil
+            || text.range(of: #"(?i)\b(opus|sonnet|haiku)\s+\d"#, options: .regularExpression) != nil
+            || text.range(of: #"shift\+tab"#, options: [.regularExpression, .caseInsensitive]) != nil {
+            // Claude Code status bar detected (visible when idle too)
+            agentType = "claude"
+        } else if text.range(of: #"(?i)\bclaude\s+code\b"#, options: .regularExpression) != nil
+            || text.range(of: #"(?i)\bwelcome\s+to\s+claude\b"#, options: .regularExpression) != nil {
+            // Claude Code welcome/startup screen
+            agentType = "claude"
+        } else if text.range(of: #"(?i)\baider\s*>"#, options: .regularExpression) != nil
+            || text.range(of: #"(?i)\baider\s+v\d"#, options: .regularExpression) != nil {
             agentType = "aider"
         } else if text.range(of: #"(?i)\bcodex\s*>"#, options: .regularExpression) != nil {
             agentType = "codex"
@@ -441,6 +461,7 @@ final class SessionManager {
         }
 
         if let agentType {
+            Self.debugLog("checkForAgentStartup: detected \(agentType) for session=\(session.name)")
             DispatchQueue.main.async { [weak self] in
                 self?.upgradeToAgentSession(session: session, agentType: agentType)
             }
@@ -452,14 +473,17 @@ final class SessionManager {
         guard !session.isAgent else { return }
         guard session.ptyFD >= 0, let backend = session.backend else { return }
 
+        Self.debugLog("upgradeToAgentSession: session=\(session.name) type=\(agentType)")
         session.isAgent = true
         session.agentType = agentType
+        agentUpgradeTime[session.id] = Date()
 
         let detector = AgentDetector(
             agentType: agentType,
             sessionId: session.id,
             sessionName: session.name
         )
+        detector.stats = session.stats
         stateLock.lock()
         detectors[session.id] = detector
         stateLock.unlock()
@@ -549,19 +573,30 @@ final class SessionManager {
         }
     }
 
-    /// Parse Claude Code's status bar from the terminal buffer (throttled to every 2s).
+    /// Parse Claude Code's status bar from the terminal buffer.
+    /// Throttled: 0.5s for the first 10s after agent upgrade, 2s after.
     private func updateStatusLine(session: Session, backend: TerminalBackend) {
         let now = Date()
-        if let last = lastStatusParse[session.id], now.timeIntervalSince(last) < 2.0 {
+        // Adaptive throttle: faster during the first 10s after upgrade so status populates quickly.
+        let upgradeAge = agentUpgradeTime[session.id].map { now.timeIntervalSince($0) } ?? 10.0
+        let throttleInterval: TimeInterval = upgradeAge < 10.0 ? 0.5 : 2.0
+        if let last = lastStatusParse[session.id], now.timeIntervalSince(last) < throttleInterval {
             return
         }
         lastStatusParse[session.id] = now
 
         let info = Self.parseStatusLine(from: backend)
+        Self.debugLog("updateStatusLine: session=\(session.name) ctx=\(info.context ?? "nil") model=\(info.model ?? "nil") mode=\(info.mode ?? "nil") effort=\(info.effort ?? "nil") cost=\(info.cost ?? "nil")")
         if info.context != session.agentContext { session.agentContext = info.context }
         if info.mode != session.agentMode { session.agentMode = info.mode }
         if info.effort != session.agentEffort { session.agentEffort = info.effort }
-        if info.cost != session.agentCost { session.agentCost = info.cost }
+        if info.cost != session.agentCost {
+            session.agentCost = info.cost
+            // Parse cost string and update stats (e.g. "$0.34" → 0.34)
+            if let costStr = info.cost, let cost = Self.parseCostValue(costStr) {
+                session.stats.recordCost(cost)
+            }
+        }
         if let model = info.model, model != session.agentModel {
             session.agentModel = model
         }
@@ -584,12 +619,13 @@ final class SessionManager {
         let rows = backend.rows
         let cols = backend.cols
 
-        // Read bottom 6 rows into individual trimmed strings
+        // Read bottom 6 rows into individual trimmed strings.
+        // Use cellAtBottom to read the true bottom even if the user has scrolled back.
         var rowStrings: [String] = []
         for row in max(0, rows - 6)..<rows {
             var line = ""
             for col in 0..<cols {
-                let cell = backend.cell(row: row, col: col)
+                let cell = backend.cellAtBottom(row: row, col: col)
                 let cp = cell.codepoint
                 if cp >= 32 && cp < 0x110000 {
                     line.append(Character(Unicode.Scalar(cp)!))
@@ -689,6 +725,14 @@ final class SessionManager {
         debugLog("Result: ctx=\(info.context ?? "nil") model=\(info.model ?? "nil") mode=\(info.mode ?? "nil") effort=\(info.effort ?? "nil") cost=\(info.cost ?? "nil")")
 
         return info
+    }
+
+    /// Parse a cost string like "$0.34" or "$12.50" into a Double.
+    static func parseCostValue(_ costStr: String) -> Double? {
+        let cleaned = costStr.trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: "$", with: "")
+            .replacingOccurrences(of: ",", with: "")
+        return Double(cleaned)
     }
 
     // MARK: - Private

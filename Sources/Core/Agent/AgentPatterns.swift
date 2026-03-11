@@ -152,10 +152,13 @@ public enum AgentPatterns {
         }
     }
 
-    /// Try to detect agent type from the command name.
+    /// Try to detect agent type from the command name or full command string.
+    /// Matches bare commands (`claude`), full paths (`/usr/local/bin/claude`),
+    /// and npx invocations (`npx @anthropic-ai/claude-code`, `npx claude`).
     public static func detectType(from command: String) -> String? {
         let cmd = (command as NSString).lastPathComponent.lowercased()
-        if cmd.contains("claude") { return "claude" }
+        let full = command.lowercased()
+        if cmd.contains("claude") || full.contains("claude-code") || full.contains("claude code") { return "claude" }
         if cmd.contains("aider") { return "aider" }
         if cmd.contains("codex") { return "codex" }
         if cmd.contains("gemini") { return "gemini" }

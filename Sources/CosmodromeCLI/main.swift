@@ -29,7 +29,7 @@ if command == "--help" || command == "-h" {
 var requestArgs: [String: String] = [:]
 
 switch command {
-case "status", "list-projects":
+case "status", "list-projects", "fleet-stats":
     break
 
 case "list-sessions":
@@ -198,6 +198,7 @@ func printUsage() {
         --agent                       Mark as agent session
       content <session-id>          Get terminal content
         --lines N                     Last N lines only
+      fleet-stats                   Show fleet-wide agent statistics
     """
     print(usage)
 }

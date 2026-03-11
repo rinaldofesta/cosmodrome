@@ -26,6 +26,9 @@ public final class AgentDetector {
     private let sessionName: String
     private var _pendingEvents: [ActivityEvent] = []
 
+    // Stats accumulation (optional — set when session has a stats tracker)
+    public var stats: SessionStats?
+
     public init(agentType: String, sessionId: UUID, sessionName: String, debounce: TimeInterval = 0.3) {
         self.patterns = AgentPatterns.patterns(for: agentType)
         self.debounce = debounce
@@ -77,6 +80,9 @@ public final class AgentDetector {
                 timestamp: now, sessionId: sessionId, sessionName: sessionName,
                 kind: .stateChanged(from: previousState, to: state)
             ))
+
+            // Update stats on state transitions
+            stats?.recordStateTransition(from: previousState, to: state)
 
             if state == .working && previousState != .working {
                 _pendingEvents.append(ActivityEvent(
@@ -142,6 +148,16 @@ public final class AgentDetector {
                 sessionName: sessionName,
                 kind: kind
             ))
+
+            // Update stats from hook events
+            switch kind {
+            case .taskCompleted: stats?.recordTaskCompleted()
+            case .error: stats?.recordError()
+            case .fileWrite: stats?.recordFileChanged()
+            case .commandRun: stats?.recordCommand()
+            case .subagentStarted: stats?.recordSubagent()
+            default: break
+            }
         }
     }
 
@@ -228,6 +244,7 @@ public final class AgentDetector {
                         timestamp: now, sessionId: sessionId, sessionName: sessionName,
                         kind: .fileWrite(path: path, added: added, removed: removed)
                     ))
+                    stats?.recordFileChanged()
                 }
             }
             // Command: "Bash: npm test" or "Execute: make build" or "Running: cargo test"
@@ -237,6 +254,7 @@ public final class AgentDetector {
                         timestamp: now, sessionId: sessionId, sessionName: sessionName,
                         kind: .commandRun(command: cmd)
                     ))
+                    stats?.recordCommand()
                 }
             }
             // Subagent started: 'Agent "description"' or 'Spawning agent: name'
@@ -248,6 +266,7 @@ public final class AgentDetector {
                         timestamp: now, sessionId: sessionId, sessionName: sessionName,
                         kind: .subagentStarted(name: name, description: s)
                     ))
+                    stats?.recordSubagent()
                 }
             }
             // Subagent completed: agent result returned

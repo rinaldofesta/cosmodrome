@@ -100,6 +100,15 @@ struct SessionThumbnailView: View {
                         .font(Typo.caption)
                         .foregroundColor(DS.stateError.opacity(0.8))
                         .transition(.opacity)
+                } else if session.isAgent && session.agentState == .inactive,
+                          let idleStr = session.stats.idleDurationString {
+                    HStack(spacing: 2) {
+                        Image(systemName: "clock")
+                            .font(.system(size: 8))
+                        Text("idle \(idleStr)")
+                            .font(Typo.caption)
+                    }
+                    .foregroundColor(idleWarningColor)
                 } else if session.exitedUnexpectedly {
                     Label("exited", systemImage: "exclamationmark.triangle.fill")
                         .font(Typo.caption)
@@ -189,42 +198,60 @@ struct SessionThumbnailView: View {
         isEditing = false
     }
 
+    /// Whether any real status data has been parsed yet.
+    private var hasStatusData: Bool {
+        session.agentContext != nil || session.agentMode != nil
+            || session.agentCost != nil || session.agentEffort != nil
+    }
+
     /// Agent status row: context, effort, cost, mode — always visible for agent sessions.
     @ViewBuilder
     private var agentStatusRow: some View {
         VStack(alignment: .leading, spacing: 3) {
-            // Line 1: context + effort + cost
-            HStack(spacing: Spacing.xs) {
-                HStack(spacing: 2) {
+            if hasStatusData {
+                // Line 1: context + effort + cost
+                HStack(spacing: Spacing.xs) {
+                    HStack(spacing: 2) {
+                        Image(systemName: "chart.bar.fill")
+                            .font(.system(size: 7))
+                        Text(session.agentContext ?? "\u{2014}")
+                            .font(Typo.captionMono)
+                    }
+                    .foregroundColor(session.agentContext != nil ? DS.textSecondary : DS.textTertiary)
+                    if let effort = session.agentEffort {
+                        Text(effort)
+                            .font(Typo.captionMono)
+                            .foregroundColor(DS.textTertiary)
+                    }
+                    Spacer()
+                    if let cost = session.agentCost {
+                        Text(cost)
+                            .font(Typo.captionMono)
+                            .foregroundColor(DS.textTertiary)
+                    }
+                }
+                // Line 2: permission mode badge
+                HStack(spacing: Spacing.xs) {
+                    let mode = session.agentMode ?? "Default"
+                    Text(mode)
+                        .font(Typo.caption)
+                        .foregroundColor(modeColor(mode))
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(modeColor(mode).opacity(0.12))
+                        .cornerRadius(Radius.sm)
+                    Spacer()
+                }
+            } else {
+                // Placeholder: no status data parsed yet
+                HStack(spacing: Spacing.xs) {
                     Image(systemName: "chart.bar.fill")
                         .font(.system(size: 7))
-                    Text(session.agentContext ?? "\u{2014}")
-                        .font(Typo.captionMono)
+                    Text("Collecting status\u{2026}")
+                        .font(Typo.caption)
+                        .italic()
                 }
-                .foregroundColor(session.agentContext != nil ? DS.textSecondary : DS.textTertiary.opacity(0.5))
-                if let effort = session.agentEffort {
-                    Text(effort)
-                        .font(Typo.captionMono)
-                        .foregroundColor(DS.textTertiary)
-                }
-                Spacer()
-                if let cost = session.agentCost {
-                    Text(cost)
-                        .font(Typo.captionMono)
-                        .foregroundColor(DS.textTertiary)
-                }
-            }
-            // Line 2: permission mode badge (always visible)
-            HStack(spacing: Spacing.xs) {
-                let mode = session.agentMode ?? "Default"
-                Text(mode)
-                    .font(Typo.caption)
-                    .foregroundColor(modeColor(mode))
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(modeColor(mode).opacity(0.12))
-                    .cornerRadius(Radius.sm)
-                Spacer()
+                .foregroundColor(DS.textTertiary)
             }
         }
         .padding(.horizontal, Spacing.sm)
@@ -263,6 +290,14 @@ struct SessionThumbnailView: View {
     private var attentionBorderWidth: CGFloat {
         if needsAttention { return 1.5 }
         return isFocused ? 1.5 : 0.5
+    }
+
+    /// Idle color escalates: gray (< 5min) → amber (5-30min) → red (30min+)
+    private var idleWarningColor: Color {
+        let idle = session.stats.currentIdleDuration
+        if idle > 1800 { return DS.stateError.opacity(0.8) }
+        if idle > 300 { return DS.stateNeedsInput.opacity(0.8) }
+        return DS.textTertiary
     }
 
     /// Unified status color: agent state > running > inactive

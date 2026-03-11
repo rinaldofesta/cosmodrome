@@ -21,6 +21,41 @@ struct AgentStatusBarView: View {
 
             Spacer()
 
+            // Fleet stats
+            let counts = projectStore.fleetAgentCounts
+            if counts.total > 0 {
+                HStack(spacing: Spacing.xs) {
+                    if counts.working > 0 {
+                        miniStatBadge("\(counts.working)", color: DS.stateWorking, icon: "play.fill")
+                    }
+                    if counts.idle > 0 {
+                        miniStatBadge("\(counts.idle)", color: DS.stateInactive, icon: "pause.fill")
+                    }
+                    if counts.needsInput > 0 {
+                        miniStatBadge("\(counts.needsInput)", color: DS.stateNeedsInput, icon: "hand.raised.fill")
+                    }
+                    if counts.error > 0 {
+                        miniStatBadge("\(counts.error)", color: DS.stateError, icon: "exclamationmark.triangle.fill")
+                    }
+                }
+            }
+
+            // Total cost
+            let cost = projectStore.fleetTotalCost
+            if cost > 0 {
+                Text(SessionStats.formatCost(cost))
+                    .font(Typo.captionMono)
+                    .foregroundColor(DS.textTertiary)
+            }
+
+            // Tasks completed
+            let tasks = projectStore.fleetTotalTasks
+            if tasks > 0 {
+                Text("\(tasks) tasks")
+                    .font(Typo.body)
+                    .foregroundColor(DS.textTertiary)
+            }
+
             // Session count
             Text("\(totalSessionCount) sessions")
                 .font(Typo.body)
@@ -60,6 +95,19 @@ struct AgentStatusBarView: View {
 
     private var totalSessionCount: Int {
         projectStore.projects.reduce(0) { $0 + $1.sessions.count }
+    }
+
+    private func miniStatBadge(_ value: String, color: Color, icon: String) -> some View {
+        HStack(spacing: 2) {
+            Image(systemName: icon)
+                .font(.system(size: 7))
+            Text(value)
+                .font(Typo.captionMono)
+        }
+        .foregroundColor(color)
+        .padding(.horizontal, 4)
+        .padding(.vertical, 2)
+        .background(Capsule().fill(color.opacity(0.12)))
     }
 }
 

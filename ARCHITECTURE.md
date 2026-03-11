@@ -213,11 +213,19 @@ Project (1) ──── (N) Session
    │                    │ (runtime, not persisted)
    │ (computed)          │ agentState: AgentState
    │ aggregateState     │ agentModel: String?  ("opus", "sonnet", "gpt-5.4")
-   │ attentionCount     │ backend: TerminalBackend
-   │                    │ ptyFD: Int32
+   │ attentionCount     │ agentContext, agentMode, agentEffort, agentCost
+   │ totalCost          │ backend: TerminalBackend
+   │ totalTasks         │ ptyFD: Int32
+   │ agentCounts        │ stats: SessionStats (cost, tasks, files, errors)
 ```
 
 Both Project and Session are `@Observable`. Changing any property automatically updates bound UI. The `agentModel` is detected from output and shown in the status bar next to the agent state indicator.
+
+### Session Status Line Parsing
+
+For agent sessions, `SessionManager.parseStatusLine()` reads the bottom 6 rows of the terminal buffer to extract Claude Code's status bar info (context %, model, effort, cost, permission mode). Values are stored in the Session model and displayed on the sidebar session card.
+
+Runtime agent detection (`checkForAgentStartup()`) scans 12 rows of the terminal buffer for Claude Code signatures (status bar keywords, welcome text, spinner chars) to upgrade shell sessions to agent sessions when the user types `claude`.
 
 ---
 
@@ -407,12 +415,26 @@ Handled by `CommandTracker` (registered as an OSC handler in `SwiftTermBackend`)
 
 ---
 
+## Fleet Statistics
+
+`SessionStats` tracks per-session usage metrics (cost, tasks completed, files changed, commands run, subagents spawned, errors). These are accumulated from `AgentDetector` activity events and status line parsing.
+
+`Project` aggregates stats across its sessions (`totalCost`, `totalTasks`, `agentCounts`). `ProjectStore` aggregates fleet-wide (`fleetTotalCost`, `fleetAgentCounts`).
+
+Exposed via:
+- **AgentStatusBarView** — mini stat badges (working/idle/needsInput/error counts + total cost + tasks)
+- **FleetOverviewView** — full dashboard overlay (Cmd+Shift+F or `g` in command mode)
+- **MCP tool** `get_fleet_stats` — structured stats for external agents
+- **CLI** `cosmodrome fleet-stats` — command-line access
+
+---
+
 ## Modal Keybindings
 
 Two modes: **Normal** (default) and **Command**.
 
 - **Normal mode:** Modifier-based shortcuts (Cmd+T, Cmd+Shift+], etc.). All other keys forwarded to PTY.
-- **Command mode:** Single-letter vim-style navigation (j/k = session, h/l = project, n = new, x = close, f = focus, p = palette). Keys NOT forwarded to PTY.
+- **Command mode:** Single-letter vim-style navigation (j/k = session, h/l = project, n = new, x = close, f = focus, g = fleet overview, p = palette). Keys NOT forwarded to PTY.
 - Toggle: `Ctrl+Space`. Exit command mode: `Escape`.
 
 ---

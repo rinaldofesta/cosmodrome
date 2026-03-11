@@ -530,16 +530,27 @@ final class Session: Identifiable, Codable {
     var autoRestart: Bool = false
     var restartDelay: TimeInterval = 1.0
     var isAgent: Bool = false
+    var agentType: String?  // "claude", "aider", "codex", "gemini"
 
-    // Runtime (not persisted)
-    @ObservationIgnored var agentState: AgentState = .inactive
-    @ObservationIgnored var agentModel: String? = nil  // "opus", "sonnet", "gpt-5.4", etc.
+    // Runtime (not persisted) — Observable for UI
+    var agentState: AgentState = .inactive
+    var agentModel: String?       // "Opus 4.6", "Sonnet 4.6", etc.
+    var agentContext: String?      // "89%" or "45k/200k"
+    var agentMode: String?         // "Plan", "Accept Edits", "Bypass"
+    var agentEffort: String?       // "high", "medium", "low"
+    var agentCost: String?         // "$0.34"
+    var isRunning: Bool = false
+    var exitedUnexpectedly: Bool = false
+    var hasUnreadNotification: Bool = false
+    var detectedPorts: [UInt16] = []
+
+    // Runtime (not persisted) — Non-observable internals
     @ObservationIgnored var backend: TerminalBackend?
     @ObservationIgnored var ptyFD: Int32 = -1
     @ObservationIgnored var pid: pid_t = 0
-    @ObservationIgnored var isRunning: Bool = false
-    @ObservationIgnored var taskStartedAt: Date? = nil  // When current task began
-    @ObservationIgnored var filesChangedInTask: [String] = []  // Files touched since task start
+    @ObservationIgnored var taskStartedAt: Date? = nil
+    @ObservationIgnored var filesChangedInTask: [String] = []
+    @ObservationIgnored let stats = SessionStats()  // Accumulated usage stats
 }
 
 enum AgentState: String, Codable {
@@ -1298,8 +1309,14 @@ Registered via `SwiftTermBackend.init()` using `terminal.registerOscHandler(code
 | `n` | New session |
 | `x` | Close session |
 | `f` | Toggle focus |
+| `g` | Toggle fleet overview |
 | `p` / `/` | Command palette |
 | `Escape` | Return to normal mode |
+
+### Normal Mode Additions
+| Shortcut | Action |
+|----------|--------|
+| `Cmd+Shift+F` | Toggle fleet overview |
 
 ### Mode Toggle
 `Ctrl+Space` toggles between normal and command mode. Works in both modes.

@@ -121,6 +121,14 @@ public final class MCPServer {
                 "required": ["session_id"],
             ],
         ],
+        [
+            "name": "get_fleet_stats",
+            "description": "Get fleet-wide statistics: agent counts by state, total cost, tasks completed, files changed.",
+            "inputSchema": [
+                "type": "object",
+                "properties": [:] as [String: Any],
+            ],
+        ],
     ]
 
     // MARK: - Read Loop

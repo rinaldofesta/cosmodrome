@@ -70,6 +70,44 @@ public final class ProjectStore {
         }
     }
 
+    // MARK: - Fleet Stats
+
+    /// All agent sessions across all projects.
+    public var allAgentSessions: [(project: Project, session: Session)] {
+        projects.flatMap { project in
+            project.sessions
+                .filter { $0.isAgent }
+                .map { (project: project, session: $0) }
+        }
+    }
+
+    /// Fleet-wide cost total.
+    public var fleetTotalCost: Double {
+        projects.reduce(0) { $0 + $1.totalCost }
+    }
+
+    /// Fleet-wide task total.
+    public var fleetTotalTasks: Int {
+        projects.reduce(0) { $0 + $1.totalTasks }
+    }
+
+    /// Fleet-wide files changed total.
+    public var fleetTotalFilesChanged: Int {
+        projects.reduce(0) { $0 + $1.totalFilesChanged }
+    }
+
+    /// Fleet-wide agent state counts.
+    public var fleetAgentCounts: (total: Int, working: Int, idle: Int, needsInput: Int, error: Int) {
+        let agents = allAgentSessions
+        return (
+            total: agents.count,
+            working: agents.count(where: { $0.session.agentState == .working }),
+            idle: agents.count(where: { $0.session.agentState == .inactive }),
+            needsInput: agents.count(where: { $0.session.agentState == .needsInput }),
+            error: agents.count(where: { $0.session.agentState == .error })
+        )
+    }
+
     /// Find the next session needing input after the given session.
     public func nextSessionNeedingInput(after currentSessionId: UUID?) -> (project: Project, session: Session)? {
         let attention = sessionsNeedingAttention

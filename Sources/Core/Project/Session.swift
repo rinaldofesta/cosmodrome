@@ -34,6 +34,9 @@ public final class Session: Identifiable {
     @ObservationIgnored public var lastNotification: TerminalNotification?
     public var detectedPorts: [UInt16] = []
 
+    // Usage stats (accumulated from activity events)
+    @ObservationIgnored public let stats = SessionStats()
+
     public init(
         id: UUID = UUID(),
         name: String,

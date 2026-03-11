@@ -70,10 +70,11 @@ Cosmodrome/
 │   │   │   ├── PTYMultiplexer.swift        # kqueue-based I/O loop
 │   │   │   └── PTYProcess.swift            # Single PTY handle
 │   │   ├── Agent/
-│   │   │   ├── AgentDetector.swift         # Pattern matching + state
+│   │   │   ├── AgentDetector.swift         # Pattern matching + state + stats tracking
 │   │   │   ├── AgentPatterns.swift         # Per-agent pattern definitions
 │   │   │   ├── ActivityLog.swift           # Structured timeline of agent events
 │   │   │   ├── ModelDetector.swift         # Detect which LLM model is in use
+│   │   │   ├── SessionStats.swift          # Per-session usage stats (cost, tasks, files)
 │   │   │   └── CompletionActions.swift     # Suggest next actions on task complete
 │   │   ├── Hooks/
 │   │   │   ├── HookServer.swift           # Unix socket server for agent hooks
@@ -101,9 +102,11 @@ Cosmodrome/
 │       │   ├── TerminalView.swift         # NSView hosting Metal
 │       │   └── LayoutEngine.swift         # Grid/Focus modes
 │       ├── StatusBar/
-│       │   └── AgentStatusBar.swift       # SwiftUI overlay
+│       │   └── AgentStatusBar.swift       # SwiftUI overlay + fleet stat badges
+│       ├── FleetOverviewView.swift        # Fleet-wide agent dashboard overlay
+│       ├── SessionThumbnail.swift         # Session card with agent status row
 │       └── Input/
-│           ├── KeybindingManager.swift    # Shortcut dispatch
+│           ├── KeybindingManager.swift    # Shortcut dispatch (normal + command modes)
 │           └── InputEncoder.swift         # Key → escape sequence
 │
 ├── Tests/

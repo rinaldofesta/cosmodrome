@@ -22,6 +22,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
     private let fontSizeState = FontSizeState()
     private var fontSizeHost: NSView?
     private var appearanceObserver: NSObjectProtocol?
+    private var fleetOverlayHost: NSHostingView<FleetOverviewView>?
+    private var fleetViewVisible = false
 
     init() {
         // Clear any saved frame from previous broken runs
@@ -662,6 +664,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
             self?.toggleActivityLog()
         })
 
+        // Fleet overview
+        actions.append(PaletteAction(
+            fleetViewVisible ? "Hide Fleet Overview" : "Show Fleet Overview",
+            subtitle: "Cmd+Shift+F",
+            icon: "square.grid.3x3.topleft.filled"
+        ) { [weak self] in
+            self?.toggleFleetView()
+        })
+
         paletteOverlay?.isHidden = false
         paletteState.show(actions: actions)
     }
@@ -911,6 +922,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
 
         case .resetFontSize:
             resetFontSize()
+
+        case .toggleFleetView:
+            toggleFleetView()
         }
 
         return true
@@ -1026,6 +1040,49 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
     private func hideActivityLogPanel() {
         activityLogOverlay?.removeFromSuperview()
         activityLogOverlay = nil
+    }
+
+    // MARK: - Fleet Overview
+
+    private func toggleFleetView() {
+        fleetViewVisible.toggle()
+
+        if fleetViewVisible {
+            showFleetView()
+        } else {
+            hideFleetView()
+        }
+    }
+
+    private func showFleetView() {
+        guard let window, let containerView = window.contentView else { return }
+
+        fleetOverlayHost?.removeFromSuperview()
+
+        let fleetView = FleetOverviewView(
+            projectStore: projectStore,
+            onFocusSession: { [weak self] projectId, sessionId in
+                self?.hideFleetView()
+                self?.fleetViewVisible = false
+                self?.jumpToSession(projectId: projectId, sessionId: sessionId)
+            },
+            onDismiss: { [weak self] in
+                self?.hideFleetView()
+                self?.fleetViewVisible = false
+            }
+        )
+
+        let host = NSHostingView(rootView: fleetView)
+        host.frame = containerView.bounds
+        host.autoresizingMask = [.width, .height]
+        containerView.addSubview(host)
+        fleetOverlayHost = host
+    }
+
+    private func hideFleetView() {
+        fleetOverlayHost?.removeFromSuperview()
+        fleetOverlayHost = nil
+        window?.makeFirstResponder(terminalContentView)
     }
 
     // MARK: - Completion Actions
@@ -1363,8 +1420,38 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
             }
             return .failure("Session not found")
 
+        case "fleet-stats":
+            let counts = projectStore.fleetAgentCounts
+            var info: [String: Any] = [
+                "agents_total": counts.total,
+                "agents_working": counts.working,
+                "agents_idle": counts.idle,
+                "agents_needs_input": counts.needsInput,
+                "agents_error": counts.error,
+                "total_cost": projectStore.fleetTotalCost,
+                "total_tasks": projectStore.fleetTotalTasks,
+                "total_files_changed": projectStore.fleetTotalFilesChanged,
+            ]
+            // Per-project stats
+            var projectStats: [[String: Any]] = []
+            for project in projectStore.projects {
+                let pc = project.agentCounts
+                projectStats.append([
+                    "name": project.name,
+                    "agents": pc.working + pc.idle + pc.needsInput + pc.error,
+                    "cost": project.totalCost,
+                    "tasks": project.totalTasks,
+                ])
+            }
+            info["projects"] = projectStats
+            if let data = try? JSONSerialization.data(withJSONObject: info, options: [.sortedKeys]),
+               let json = String(data: data, encoding: .utf8) {
+                return .success(json)
+            }
+            return .success("{}")
+
         default:
-            return .failure("Unknown command: \(request.command). Available: list-projects, list-sessions, focus, send, new-session, status, content")
+            return .failure("Unknown command: \(request.command). Available: list-projects, list-sessions, focus, send, new-session, status, content, fleet-stats")
         }
     }
 

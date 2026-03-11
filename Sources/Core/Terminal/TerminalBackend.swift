@@ -76,4 +76,11 @@ extension TerminalBackend {
     public func scroll(lines: Int) {}
     public func scrollToBottom() {}
     public var isScrolledBack: Bool { false }
+
+    /// Read a cell at the true bottom of the buffer, ignoring any scroll offset.
+    /// Must be called while lock is held.
+    /// Default: delegates to cell(row:col:). Backends with scroll offset should override.
+    public func cellAtBottom(row: Int, col: Int) -> TerminalCell {
+        cell(row: row, col: col)
+    }
 }

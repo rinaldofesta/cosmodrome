@@ -180,6 +180,29 @@ public final class SwiftTermBackend: TerminalBackend {
         _scrollOffset > 0
     }
 
+    /// Read a cell at the true bottom of the buffer, ignoring any scroll offset.
+    /// Must be called while lock is held.
+    public func cellAtBottom(row: Int, col: Int) -> TerminalCell {
+        guard hasData,
+              row >= 0 && row < terminal.rows && col >= 0 && col < terminal.cols else {
+            return TerminalCell(codepoint: 32, wide: false, fg: .default, bg: .default, attrs: [])
+        }
+
+        // Temporarily snap to the real bottom if scrolled back
+        let savedYDisp = terminal.buffer.yDisp
+        if _scrollOffset > 0 {
+            terminal.buffer.yDisp = _bottomPosition
+        }
+
+        let result = cell(row: row, col: col)
+
+        if _scrollOffset > 0 {
+            terminal.buffer.yDisp = savedYDisp
+        }
+
+        return result
+    }
+
     public func pendingSendData() -> Data? {
         delegate.takePendingData()
     }

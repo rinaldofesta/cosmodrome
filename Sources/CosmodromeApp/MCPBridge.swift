@@ -57,6 +57,8 @@ final class MCPBridge: MCPServerDelegate {
                 return .failure(MCPBridgeError.invalidArgument("session_id"))
             }
             return stopRecording(sessionId: uuid)
+        case "get_fleet_stats":
+            return getFleetStats()
         default:
             return .failure(MCPBridgeError.unknownTool(name))
         }
@@ -213,6 +215,40 @@ final class MCPBridge: MCPServerDelegate {
         }
         recorder.close()
         return .success("Recording stopped.")
+    }
+
+    private func getFleetStats() -> Result<String, Error> {
+        guard let store = projectStore else {
+            return .failure(MCPBridgeError.notConnected)
+        }
+
+        let counts = store.fleetAgentCounts
+        let cost = store.fleetTotalCost
+        let tasks = store.fleetTotalTasks
+        let files = store.fleetTotalFilesChanged
+
+        var lines: [String] = [
+            "Fleet Statistics:",
+            "  Agents: \(counts.total) total",
+            "    Working: \(counts.working)",
+            "    Idle: \(counts.idle)",
+            "    Needs Input: \(counts.needsInput)",
+            "    Errors: \(counts.error)",
+            "  Total Cost: \(SessionStats.formatCost(cost))",
+            "  Tasks Completed: \(tasks)",
+            "  Files Changed: \(files)",
+        ]
+
+        // Per-project breakdown
+        for project in store.projects {
+            let pc = project.agentCounts
+            let agentCount = pc.working + pc.idle + pc.needsInput + pc.error
+            if agentCount > 0 {
+                lines.append("  \(project.name): \(agentCount) agents, \(SessionStats.formatCost(project.totalCost)), \(project.totalTasks) tasks")
+            }
+        }
+
+        return .success(lines.joined(separator: "\n"))
     }
 
     /// Called from the I/O path to record output if a recorder is active.

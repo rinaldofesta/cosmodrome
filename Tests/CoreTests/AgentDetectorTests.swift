@@ -98,4 +98,44 @@ final class AgentDetectorTests: XCTestCase {
         }
         XCTAssertEqual(detector.state, .error)
     }
+
+    // MARK: - Agent Command Detection
+
+    func testDetectTypeFromBareCommand() {
+        XCTAssertEqual(AgentPatterns.detectType(from: "claude"), "claude")
+        XCTAssertEqual(AgentPatterns.detectType(from: "aider"), "aider")
+        XCTAssertEqual(AgentPatterns.detectType(from: "codex"), "codex")
+        XCTAssertEqual(AgentPatterns.detectType(from: "gemini"), "gemini")
+    }
+
+    func testDetectTypeFromFullPath() {
+        XCTAssertEqual(AgentPatterns.detectType(from: "/usr/local/bin/claude"), "claude")
+        XCTAssertEqual(AgentPatterns.detectType(from: "/home/user/.local/bin/aider"), "aider")
+    }
+
+    func testDetectTypeFromNpxInvocation() {
+        XCTAssertEqual(AgentPatterns.detectType(from: "npx @anthropic-ai/claude-code"), "claude")
+        XCTAssertEqual(AgentPatterns.detectType(from: "npx claude"), "claude")
+    }
+
+    func testDetectTypeNonAgent() {
+        XCTAssertNil(AgentPatterns.detectType(from: "/bin/zsh"))
+        XCTAssertNil(AgentPatterns.detectType(from: "bash"))
+        XCTAssertNil(AgentPatterns.detectType(from: "vim"))
+    }
+
+    // MARK: - ANSI Stripping
+
+    func testStripANSI() {
+        let input = "\u{1B}[1;33mAllow\u{1B}[0m tool?"
+        let clean = AgentDetector.stripANSI(input)
+        XCTAssertEqual(clean, "Allow tool?")
+    }
+
+    func testDetectsNeedsInputWithANSI() {
+        let detector = AgentDetector(agentType: "claude", debounce: 0)
+        // Simulates ANSI-wrapped "Allow" prompt as seen in raw PTY output
+        detector.analyzeText("\u{1B}[1;33mAllow\u{1B}[0m Read file.swift? [y/n]")
+        XCTAssertEqual(detector.state, .needsInput)
+    }
 }

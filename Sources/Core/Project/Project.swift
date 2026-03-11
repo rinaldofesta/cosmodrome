@@ -22,6 +22,34 @@ public final class Project: Identifiable {
         sessions.count(where: { $0.agentState == .needsInput || $0.agentState == .error })
     }
 
+    // MARK: - Aggregated Stats
+
+    /// Total cost across all agent sessions in this project.
+    public var totalCost: Double {
+        sessions.filter(\.isAgent).reduce(0) { $0 + $1.stats.totalCost }
+    }
+
+    /// Total tasks completed across all agent sessions.
+    public var totalTasks: Int {
+        sessions.filter(\.isAgent).reduce(0) { $0 + $1.stats.totalTasks }
+    }
+
+    /// Total files changed across all agent sessions.
+    public var totalFilesChanged: Int {
+        sessions.filter(\.isAgent).reduce(0) { $0 + $1.stats.totalFilesChanged }
+    }
+
+    /// Count of agent sessions in each state.
+    public var agentCounts: (working: Int, idle: Int, needsInput: Int, error: Int) {
+        let agents = sessions.filter(\.isAgent)
+        return (
+            working: agents.count(where: { $0.agentState == .working }),
+            idle: agents.count(where: { $0.agentState == .inactive }),
+            needsInput: agents.count(where: { $0.agentState == .needsInput }),
+            error: agents.count(where: { $0.agentState == .error })
+        )
+    }
+
     public init(
         id: UUID = UUID(),
         name: String,

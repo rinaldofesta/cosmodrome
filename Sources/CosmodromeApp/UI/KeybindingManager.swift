@@ -26,6 +26,7 @@ final class KeybindingManager {
         case commandPalette
         case enterNormalMode
         case increaseFontSize, decreaseFontSize, resetFontSize
+        case toggleFleetView
     }
 
     enum Mode {
@@ -91,6 +92,9 @@ final class KeybindingManager {
         // Ctrl+Space: toggle to command mode (keyCode 49 = Space)
         normalBindings[Binding(key: 49, modifiers: .control)] = .commandPalette // initially opens palette; toggleMode handled in MainWindowController
 
+        // Cmd+Shift+F: toggle fleet overview (keyCode 3 = 'F')
+        normalBindings[Binding(key: 3, modifiers: [.command, .shift])] = .toggleFleetView
+
         // Cmd+=: increase font size (keyCode 24 = '=')
         normalBindings[Binding(key: 24, modifiers: .command)] = .increaseFontSize
         // Cmd+-: decrease font size (keyCode 27 = '-')
@@ -111,6 +115,7 @@ final class KeybindingManager {
         commandBindings[Binding(key: 35, modifiers: [])] = .commandPalette    // p
         commandBindings[Binding(key: 3, modifiers: [])] = .toggleFocus        // f
         commandBindings[Binding(key: 44, modifiers: [])] = .commandPalette    // /
+        commandBindings[Binding(key: 5, modifiers: [])] = .toggleFleetView    // g (fleet/global)
         commandBindings[Binding(key: 53, modifiers: [])] = .enterNormalMode   // Escape
 
         // Also keep Ctrl+Space in command mode to toggle back
