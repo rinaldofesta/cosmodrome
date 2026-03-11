@@ -55,15 +55,19 @@ public final class AgentDetector {
 
     /// Analyze text directly (for testing and non-PTY usage).
     public func analyzeText(_ text: String) {
+        // Strip ANSI escape sequences so regex patterns match clean text.
+        // Raw PTY output contains codes like \e[1;33mAllow\e[0m that break patterns.
+        let cleanText = Self.stripANSI(text)
+
         // 1. State detection
-        detectState(text)
+        detectState(cleanText)
 
         // 2. Model detection (lazy)
-        let forceModel = ModelDetector.containsModelCommand(text)
-        modelDetector.scan(text, force: forceModel)
+        let forceModel = ModelDetector.containsModelCommand(cleanText)
+        modelDetector.scan(cleanText, force: forceModel)
 
         // 3. Activity event extraction
-        extractEvents(from: text)
+        extractEvents(from: cleanText)
 
         // 4. State transition events
         if state != previousState {
@@ -156,14 +160,17 @@ public final class AgentDetector {
     // MARK: - Private: State Detection
 
     private func detectState(_ text: String) {
-        // Hook events are authoritative — skip regex detection when hooks are active
-        // But fall back to regex if no hook event received within timeout
+        // Determine if hooks are active (received within timeout)
+        let hookActive: Bool
         if hasHookData {
             if Date().timeIntervalSince(lastHookEvent) > hookTimeout {
                 hasHookData = false
+                hookActive = false
             } else {
-                return
+                hookActive = true
             }
+        } else {
+            hookActive = false
         }
 
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
@@ -174,6 +181,12 @@ public final class AgentDetector {
 
         // Check patterns in priority order (highest first)
         for pattern in patterns.sorted(by: { $0.priority > $1.priority }) {
+            // When hooks are active, only run patterns for states hooks can't detect.
+            // Hooks handle .working and .inactive authoritatively, but have no event
+            // for .needsInput or .error — regex must still detect those.
+            if hookActive && pattern.state != .needsInput && pattern.state != .error {
+                continue
+            }
             let searchText = pattern.lastLineOnly ? lastLine : lastLines.joined(separator: "\n")
             if searchText.range(of: pattern.regex, options: .regularExpression) != nil {
                 detected = pattern.state
@@ -310,5 +323,14 @@ public final class AgentDetector {
             return true
         }
         return false
+    }
+
+    /// Strip ANSI escape sequences (CSI, OSC, charset designators) from text.
+    static func stripANSI(_ text: String) -> String {
+        text.replacingOccurrences(
+            of: #"\x1B\[[0-9;]*[a-zA-Z]|\x1B\][^\x07\x1B]*(?:\x07|\x1B\\)|\x1B[()][012AB]|\x1B[>=]"#,
+            with: "",
+            options: .regularExpression
+        )
     }
 }

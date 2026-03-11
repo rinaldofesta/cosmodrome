@@ -25,12 +25,12 @@ public final class Session: Identifiable {
     @ObservationIgnored public var backend: TerminalBackend?
     @ObservationIgnored public var ptyFD: Int32 = -1
     @ObservationIgnored public var pid: pid_t = 0
-    @ObservationIgnored public var isRunning: Bool = false
-    @ObservationIgnored public var exitedUnexpectedly: Bool = false
+    public var isRunning: Bool = false
+    public var exitedUnexpectedly: Bool = false
     @ObservationIgnored public var restartAttempts: Int = 0
     @ObservationIgnored public var taskStartedAt: Date?
     @ObservationIgnored public var filesChangedInTask: [String] = []
-    @ObservationIgnored public var hasUnreadNotification: Bool = false
+    public var hasUnreadNotification: Bool = false
     @ObservationIgnored public var lastNotification: TerminalNotification?
     public var detectedPorts: [UInt16] = []
 

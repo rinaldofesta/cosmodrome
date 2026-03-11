@@ -139,7 +139,7 @@ struct SessionThumbnailView: View {
             }
 
             // Row 4: Agent status info or terminal preview
-            if session.isAgent, hasStatusInfo {
+            if session.isAgent {
                 agentStatusRow
             } else if let backend = session.backend {
                 let preview = buildPreview(backend: backend)
@@ -189,26 +189,19 @@ struct SessionThumbnailView: View {
         isEditing = false
     }
 
-    /// Whether we have any Claude Code status info to display.
-    private var hasStatusInfo: Bool {
-        session.agentContext != nil || session.agentMode != nil || session.agentCost != nil || session.agentEffort != nil
-    }
-
-    /// Agent status row: context, model, effort, mode, cost.
+    /// Agent status row: context, effort, cost, mode — always visible for agent sessions.
     @ViewBuilder
     private var agentStatusRow: some View {
         VStack(alignment: .leading, spacing: 3) {
-            // Line 1: context + model + effort
+            // Line 1: context + effort + cost
             HStack(spacing: Spacing.xs) {
-                if let ctx = session.agentContext {
-                    HStack(spacing: 2) {
-                        Image(systemName: "chart.bar.fill")
-                            .font(.system(size: 7))
-                        Text(ctx)
-                            .font(Typo.captionMono)
-                    }
-                    .foregroundColor(DS.textSecondary)
+                HStack(spacing: 2) {
+                    Image(systemName: "chart.bar.fill")
+                        .font(.system(size: 7))
+                    Text(session.agentContext ?? "\u{2014}")
+                        .font(Typo.captionMono)
                 }
+                .foregroundColor(session.agentContext != nil ? DS.textSecondary : DS.textTertiary.opacity(0.5))
                 if let effort = session.agentEffort {
                     Text(effort)
                         .font(Typo.captionMono)
@@ -221,18 +214,17 @@ struct SessionThumbnailView: View {
                         .foregroundColor(DS.textTertiary)
                 }
             }
-            // Line 2: permission mode badge
-            if let mode = session.agentMode {
-                HStack(spacing: Spacing.xs) {
-                    Text(mode)
-                        .font(Typo.caption)
-                        .foregroundColor(modeColor(mode))
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(modeColor(mode).opacity(0.12))
-                        .cornerRadius(Radius.sm)
-                    Spacer()
-                }
+            // Line 2: permission mode badge (always visible)
+            HStack(spacing: Spacing.xs) {
+                let mode = session.agentMode ?? "Default"
+                Text(mode)
+                    .font(Typo.caption)
+                    .foregroundColor(modeColor(mode))
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(modeColor(mode).opacity(0.12))
+                    .cornerRadius(Radius.sm)
+                Spacer()
             }
         }
         .padding(.horizontal, Spacing.sm)
@@ -295,7 +287,7 @@ struct SessionThumbnailView: View {
             for col in 0..<cols {
                 let cell = backend.cell(row: row, col: col)
                 let cp = cell.codepoint
-                if cp >= 32 && cp < 0x10000 {
+                if cp >= 32 && cp < 0x110000 {
                     line.append(Character(Unicode.Scalar(cp)!))
                 } else {
                     line.append(" ")

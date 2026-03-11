@@ -14,7 +14,7 @@ final class FontManager {
     private(set) var cellMetrics: CellMetrics
     private(set) var fontSize: CGFloat
     private let family: String
-    private let scale: CGFloat
+    private var scale: CGFloat
     private let lineHeight: CGFloat
     let defaultFontSize: CGFloat
 
@@ -62,8 +62,18 @@ final class FontManager {
         let clamped = min(max(newSize, 8), 32)
         guard clamped != fontSize else { return }
         fontSize = clamped
+        rebuildFonts()
+    }
 
-        let scaledSize = clamped * scale
+    /// Update backing scale factor (e.g. window moved to a different-DPI monitor).
+    func updateScale(_ newScale: CGFloat) {
+        guard newScale != scale else { return }
+        scale = newScale
+        rebuildFonts()
+    }
+
+    private func rebuildFonts() {
+        let scaledSize = fontSize * scale
         let regular = CTFontCreateWithName(family as CFString, scaledSize, nil)
 
         let bold = CTFontCreateCopyWithSymbolicTraits(

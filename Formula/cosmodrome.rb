@@ -1,7 +1,7 @@
 class Cosmodrome < Formula
   desc "Native macOS terminal emulator for AI agent orchestration"
   homepage "https://github.com/cosmodrome-app/cosmodrome"
-  url "https://github.com/cosmodrome-app/cosmodrome/archive/refs/tags/v1.0.0.tar.gz"
+  url "https://github.com/cosmodrome-app/cosmodrome/archive/refs/tags/v1.1.0.tar.gz"
   sha256 "PLACEHOLDER_SHA256"
   license "MIT"
 

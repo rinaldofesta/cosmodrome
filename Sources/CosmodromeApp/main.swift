@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-let version = "1.0.0"
+let version = "1.2.0"
 
 if CommandLine.arguments.contains("--version") || CommandLine.arguments.contains("-v") {
     print("Cosmodrome \(version)")

@@ -12,11 +12,9 @@ RESOURCES="$CONTENTS/Resources"
 # Clean previous bundle
 rm -rf "$BUNDLE_DIR"
 
-# Build release if needed
-if [ ! -f "$PROJ_DIR/.build/release/CosmodromeApp" ]; then
-    echo "Building release..."
-    cd "$PROJ_DIR" && swift build -c release
-fi
+# Always rebuild release
+echo "Building release..."
+cd "$PROJ_DIR" && swift build -c release
 
 # Create bundle structure
 mkdir -p "$MACOS" "$RESOURCES"
@@ -41,9 +39,9 @@ cat > "$CONTENTS/Info.plist" << 'PLIST'
     <key>CFBundleIdentifier</key>
     <string>com.cosmodrome.terminal</string>
     <key>CFBundleVersion</key>
-    <string>1.0.0</string>
+    <string>1.2.0</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>1.2.0</string>
     <key>CFBundleExecutable</key>
     <string>Cosmodrome</string>
     <key>CFBundleIconFile</key>

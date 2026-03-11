@@ -7,7 +7,6 @@ struct SidebarView: View {
     var onSelectSession: (UUID) -> Void
     var onNewProject: () -> Void
     var onNewSession: (UUID) -> Void
-    var onNewClaudeSession: (UUID) -> Void
     var onDeleteProject: (UUID) -> Void
     var onCloseSession: (UUID) -> Void
     var onRestartSession: (UUID) -> Void
@@ -60,7 +59,6 @@ struct SidebarView: View {
                                 }
                             },
                             onNewSession: { onNewSession(project.id) },
-                            onNewClaudeSession: { onNewClaudeSession(project.id) },
                             onDelete: { onDeleteProject(project.id) }
                         )
 
@@ -123,18 +121,31 @@ struct SidebarView: View {
     }
 }
 
+// MARK: - Color Presets
+
+private let projectColorPresets: [(name: String, hex: String)] = [
+    ("Blue", "#4A90D9"),
+    ("Red", "#E74C3C"),
+    ("Green", "#2ECC71"),
+    ("Orange", "#F39C12"),
+    ("Purple", "#9B59B6"),
+    ("Teal", "#1ABC9C"),
+    ("Pink", "#E91E63"),
+    ("Slate", "#607D8B"),
+]
+
 private struct ProjectRow: View {
     let project: Project
     let isSelected: Bool
     let isExpanded: Bool
     var onSelect: () -> Void
     var onNewSession: () -> Void
-    var onNewClaudeSession: () -> Void
     var onDelete: () -> Void
 
     @State private var isEditing = false
     @State private var editName = ""
     @State private var isHovered = false
+    @State private var showColorPicker = false
 
     var body: some View {
         HStack(spacing: Spacing.sm) {
@@ -146,6 +157,10 @@ private struct ProjectRow: View {
             Circle()
                 .fill(Color(hex: project.color) ?? .blue)
                 .frame(width: 8, height: 8)
+                .onTapGesture { showColorPicker.toggle() }
+                .popover(isPresented: $showColorPicker, arrowEdge: .trailing) {
+                    colorPickerPopover
+                }
 
             if isEditing {
                 AutoSelectTextField(text: $editName, onCommit: commitRename)
@@ -215,12 +230,42 @@ private struct ProjectRow: View {
         }
         .contextMenu {
             Button("Rename") { startRename() }
+            Button("Change Color") { showColorPicker = true }
             Divider()
-            Button("Launch Claude Code") { onNewClaudeSession() }
             Button("New Shell Session") { onNewSession() }
             Divider()
             Button("Delete Project", role: .destructive) { onDelete() }
         }
+    }
+
+    @ViewBuilder
+    private var colorPickerPopover: some View {
+        VStack(alignment: .leading, spacing: Spacing.sm) {
+            Text("Project Color")
+                .font(Typo.caption)
+                .foregroundColor(DS.textSecondary)
+
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 22), spacing: 6)], spacing: 6) {
+                ForEach(projectColorPresets, id: \.hex) { preset in
+                    let isCurrentColor = project.color == preset.hex
+                    Circle()
+                        .fill(Color(hex: preset.hex) ?? .blue)
+                        .frame(width: 20, height: 20)
+                        .overlay(
+                            Circle()
+                                .stroke(Color.white, lineWidth: isCurrentColor ? 2 : 0)
+                        )
+                        .shadow(color: .black.opacity(0.2), radius: 1, y: 1)
+                        .onTapGesture {
+                            project.color = preset.hex
+                            showColorPicker = false
+                        }
+                        .help(preset.name)
+                }
+            }
+        }
+        .padding(Spacing.md)
+        .frame(width: 140)
     }
 
     private func startRename() {

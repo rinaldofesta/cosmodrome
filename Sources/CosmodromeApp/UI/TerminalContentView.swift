@@ -30,6 +30,7 @@ final class TerminalContentView: NSView {
     // Text selection state
     private(set) var selection: TerminalSelection?
     private var isDragging = false
+    private var lastBackingScale: CGFloat = 0
 
     override init(frame frameRect: NSRect) {
         self.metalView = MTKView(frame: frameRect)
@@ -126,6 +127,21 @@ final class TerminalContentView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if let scale = window?.backingScaleFactor, lastBackingScale == 0 {
+            lastBackingScale = scale
+            renderer?.fontManager.updateScale(scale)
+            renderer?.atlas.clearCache()
+        }
+        needsLayout = true
+        metalView.needsDisplay = true
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        guard let scale = window?.backingScaleFactor, scale != lastBackingScale else { return }
+        lastBackingScale = scale
+        renderer?.fontManager.updateScale(scale)
+        renderer?.atlas.clearCache()
         needsLayout = true
         metalView.needsDisplay = true
     }

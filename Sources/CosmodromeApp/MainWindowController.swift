@@ -19,6 +19,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
     private var controlServer: ControlServer?
     private let modeIndicatorState = ModeIndicatorState()
     private var modeIndicatorHost: NSHostingView<ModeIndicatorView>?
+    private let fontSizeState = FontSizeState()
+    private var fontSizeHost: NSView?
     private var appearanceObserver: NSObjectProtocol?
 
     init() {
@@ -117,11 +119,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
                           let project = self.projectStore.projects.first(where: { $0.id == projectId }) else { return }
                     self.addSession(to: project)
                 },
-                onNewClaudeSession: { [weak self] projectId in
-                    guard let self,
-                          let project = self.projectStore.projects.first(where: { $0.id == projectId }) else { return }
-                    self.addClaudeSession(to: project)
-                },
                 onDeleteProject: { [weak self] id in
                     guard let self,
                           let project = self.projectStore.projects.first(where: { $0.id == id }) else { return }
@@ -185,6 +182,26 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         modeHost.autoresizingMask = [.width, .height]
         terminalContentView.addSubview(modeHost)
         modeIndicatorHost = modeHost
+
+        // Font size control overlay (bottom-right, above mode indicator)
+        let fontCtrl = FontSizeControlView(
+            state: fontSizeState,
+            onIncrease: { [weak self] in self?.adjustFontSize(delta: 1) },
+            onDecrease: { [weak self] in self?.adjustFontSize(delta: -1) },
+            onReset: { [weak self] in self?.resetFontSize() }
+        )
+        let fontHost = NSHostingView(rootView: fontCtrl)
+        let fittingSize = fontHost.fittingSize
+        let termBounds = terminalContentView.bounds
+        fontHost.frame = NSRect(
+            x: termBounds.maxX - fittingSize.width - 12,
+            y: 8,
+            width: fittingSize.width,
+            height: fittingSize.height
+        )
+        fontHost.autoresizingMask = [.minXMargin, .maxYMargin]
+        terminalContentView.addSubview(fontHost)
+        fontSizeHost = fontHost
 
         window.contentView = containerView
 
@@ -265,6 +282,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
             if let savedSize = state.fontSize {
                 terminalContentView.setFontSize(CGFloat(savedSize))
             }
+            syncFontSizeState()
 
             // Restore window frame and zoom state
             if state.windowZoomed {
@@ -528,11 +546,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         })
 
         // New session / project
-        actions.append(PaletteAction("Launch Claude Code", icon: "cpu") { [weak self] in
-            if let project = self?.projectStore.activeProject {
-                self?.addClaudeSession(to: project)
-            }
-        })
         actions.append(PaletteAction("New Shell Session", subtitle: "Cmd+T", icon: "plus.rectangle") { [weak self] in
             if let project = self?.projectStore.activeProject {
                 self?.addSession(to: project)
@@ -891,22 +904,36 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
             keybindingManager.setMode(.normal)
 
         case .increaseFontSize:
-            if let fm = terminalContentView.renderer?.fontManager {
-                terminalContentView.setFontSize(fm.fontSize + 1)
-            }
+            adjustFontSize(delta: 1)
 
         case .decreaseFontSize:
-            if let fm = terminalContentView.renderer?.fontManager {
-                terminalContentView.setFontSize(fm.fontSize - 1)
-            }
+            adjustFontSize(delta: -1)
 
         case .resetFontSize:
-            if let fm = terminalContentView.renderer?.fontManager {
-                terminalContentView.setFontSize(fm.defaultFontSize)
-            }
+            resetFontSize()
         }
 
         return true
+    }
+
+    // MARK: - Font Size
+
+    private func adjustFontSize(delta: CGFloat) {
+        guard let fm = terminalContentView.renderer?.fontManager else { return }
+        terminalContentView.setFontSize(fm.fontSize + delta)
+        syncFontSizeState()
+    }
+
+    private func resetFontSize() {
+        guard let fm = terminalContentView.renderer?.fontManager else { return }
+        terminalContentView.setFontSize(fm.defaultFontSize)
+        syncFontSizeState()
+    }
+
+    private func syncFontSizeState() {
+        if let fm = terminalContentView.renderer?.fontManager {
+            fontSizeState.currentSize = fm.fontSize
+        }
     }
 
     // MARK: - Key Encoding

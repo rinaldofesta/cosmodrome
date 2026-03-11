@@ -208,7 +208,10 @@ final class SessionManager {
                                 self?.onTaskCompleted?(session, files, duration)
                             }
 
-                            // Notification on state change to needsInput/error
+                            // Mark session as needing attention + send macOS notification
+                            if newState == .needsInput || newState == .error {
+                                session.hasUnreadNotification = true
+                            }
                             if let project = self?.findProject(for: session) {
                                 AgentNotifications.notifyAgentState(project: project, session: session)
                             }
@@ -413,7 +416,7 @@ final class SessionManager {
             for col in 0..<cols {
                 let cell = backend.cell(row: row, col: col)
                 let cp = cell.codepoint
-                if cp >= 32 && cp < 0x10000 {
+                if cp >= 32 && cp < 0x110000 {
                     text.append(Character(Unicode.Scalar(cp)!))
                 } else {
                     text.append(" ")
@@ -538,10 +541,18 @@ final class SessionManager {
 
     // MARK: - Status Line Parsing
 
-    /// Parse Claude Code's status bar from the terminal buffer (throttled to every 3s).
+    private static let debugStatus = ProcessInfo.processInfo.environment["COSMODROME_DEBUG_STATUS"] != nil
+
+    private static func debugLog(_ message: @autoclosure () -> String) {
+        if debugStatus {
+            FileHandle.standardError.write("[StatusParse] \(message())\n".data(using: .utf8)!)
+        }
+    }
+
+    /// Parse Claude Code's status bar from the terminal buffer (throttled to every 2s).
     private func updateStatusLine(session: Session, backend: TerminalBackend) {
         let now = Date()
-        if let last = lastStatusParse[session.id], now.timeIntervalSince(last) < 3.0 {
+        if let last = lastStatusParse[session.id], now.timeIntervalSince(last) < 2.0 {
             return
         }
         lastStatusParse[session.id] = now
@@ -551,6 +562,9 @@ final class SessionManager {
         if info.mode != session.agentMode { session.agentMode = info.mode }
         if info.effort != session.agentEffort { session.agentEffort = info.effort }
         if info.cost != session.agentCost { session.agentCost = info.cost }
+        if let model = info.model, model != session.agentModel {
+            session.agentModel = model
+        }
     }
 
     struct StatusLineInfo {
@@ -558,43 +572,86 @@ final class SessionManager {
         var mode: String?
         var effort: String?
         var cost: String?
+        var model: String?
     }
 
     /// Read the bottom rows of the terminal buffer and extract status bar info.
+    /// Claude Code's status line format (2 lines at bottom):
+    ///   Line 1: user@host  /path  Opus 4.6 | ctx: 89%   ● high · /effort
+    ///   Line 2: ⏸ plan mode on (shift+tab to cycle)
     static func parseStatusLine(from backend: TerminalBackend) -> StatusLineInfo {
         backend.lock()
         let rows = backend.rows
         let cols = backend.cols
 
-        // Read bottom 3 rows (Claude Code status bar sits at the bottom)
-        var text = ""
-        for row in max(0, rows - 3)..<rows {
+        // Read bottom 6 rows into individual trimmed strings
+        var rowStrings: [String] = []
+        for row in max(0, rows - 6)..<rows {
+            var line = ""
             for col in 0..<cols {
                 let cell = backend.cell(row: row, col: col)
                 let cp = cell.codepoint
-                if cp >= 32 && cp < 0x10000 {
-                    text.append(Character(Unicode.Scalar(cp)!))
+                if cp >= 32 && cp < 0x110000 {
+                    line.append(Character(Unicode.Scalar(cp)!))
                 } else {
-                    text.append(" ")
+                    line.append(" ")
                 }
             }
-            text.append(" ")
+            // Trim trailing whitespace
+            while line.hasSuffix(" ") { line.removeLast() }
+            rowStrings.append(line)
         }
         backend.unlock()
 
+        debugLog("Bottom 6 rows: \(rowStrings.enumerated().map { "[\($0)]: \($1)" }.joined(separator: " | "))")
+
         var info = StatusLineInfo()
 
-        // Context: "45k/200k" or "45.2k / 200k" or "128.5k/200k"
-        if let range = text.range(of: #"\d+\.?\d*[kK]\s*/\s*\d+\.?\d*[kK]"#, options: .regularExpression) {
-            info.context = String(text[range]).replacingOccurrences(of: " ", with: "")
+        // Classify rows: find the "info row" (ctx: or model) and "mode row" (mode on/off)
+        var infoRow: String?
+        var modeRow: String?
+
+        for row in rowStrings {
+            if row.range(of: #"ctx:\s*\d+"#, options: .regularExpression) != nil
+                || row.range(of: #"(?i)\b(opus|sonnet|haiku)\s+\d"#, options: .regularExpression) != nil {
+                infoRow = row
+            }
+            if row.range(of: #"(?i)mode\s+(on|off)\b"#, options: .regularExpression) != nil
+                || row.range(of: #"shift\+tab"#, options: [.regularExpression, .caseInsensitive]) != nil {
+                modeRow = row
+            }
         }
 
-        // Cost: "$0.23" or "$12.45"
-        if let range = text.range(of: #"\$\d+\.\d+"#, options: .regularExpression) {
-            info.cost = String(text[range])
+        debugLog("infoRow: \(infoRow ?? "nil") | modeRow: \(modeRow ?? "nil")")
+
+        // Extract from info row (or fallback to all rows)
+        let infoText = infoRow ?? rowStrings.joined(separator: " ")
+
+        // Context: "ctx: 89%" or "ctx:45%"
+        if let range = infoText.range(of: #"ctx:\s*(\d+%)"#, options: .regularExpression) {
+            let match = String(infoText[range])
+            // Extract just the percentage part
+            if let pctRange = match.range(of: #"\d+%"#, options: .regularExpression) {
+                info.context = String(match[pctRange])
+            }
+        }
+        // Fallback: "45k/200k" format
+        if info.context == nil,
+           let range = infoText.range(of: #"\d+\.?\d*[kK]\s*/\s*\d+\.?\d*[kK]"#, options: .regularExpression) {
+            info.context = String(infoText[range]).replacingOccurrences(of: " ", with: "")
         }
 
-        // Effort: "high", "medium", "low", "max" (Claude Code reasoning effort)
+        // Model: "Opus 4.6", "Sonnet 4.6", "Haiku 4.5"
+        if let range = infoText.range(of: #"(?i)\b(opus|sonnet|haiku)\s+\d+(?:\.\d+)?"#, options: .regularExpression) {
+            info.model = String(infoText[range])
+        }
+        // Fallback: API name "claude-opus-4-6"
+        if info.model == nil,
+           let range = infoText.range(of: #"\bclaude-\S+"#, options: .regularExpression) {
+            info.model = String(infoText[range])
+        }
+
+        // Effort: "high", "medium", "low", "max" — search info row only
         let effortPatterns: [(pattern: String, label: String)] = [
             (#"\bmax\b"#, "max"),
             (#"\bhigh\b"#, "high"),
@@ -602,28 +659,34 @@ final class SessionManager {
             (#"\blow\b"#, "low"),
         ]
         for (pattern, label) in effortPatterns {
-            if text.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil {
+            if infoText.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil {
                 info.effort = label
                 break
             }
         }
 
-        // Mode: match known Claude Code permission modes (Shift+Tab cycles)
-        // Check more specific patterns first to avoid false positives
+        // Cost: "$0.23" or "$12.45"
+        if let range = infoText.range(of: #"\$\d+\.\d+"#, options: .regularExpression) {
+            info.cost = String(infoText[range])
+        }
+
+        // Mode: extract from mode row (or fallback to all rows)
+        let modeText = modeRow ?? rowStrings.joined(separator: " ")
+
+        // Match confirmed Claude Code formats: "plan mode on", "accept edits on", "bypass permissions on"
         let modePatterns: [(pattern: String, label: String)] = [
-            (#"\bbypass\s*permissions?\b"#, "Bypass"),
-            (#"\bdangerously\b"#, "Bypass"),
-            (#"\baccept\s*edits?\b"#, "Accept Edits"),
-            (#"\bplan\b"#, "Plan"),
-            (#"\bauto\b"#, "Auto"),
-            (#"\bdefault\b"#, "Default"),
+            (#"(?i)\bbypass\s+permissions?"#, "Bypass"),
+            (#"(?i)\baccept\s+edits?"#, "Accept Edits"),
+            (#"(?i)\bplan\s+mode"#, "Plan"),
         ]
         for (pattern, label) in modePatterns {
-            if text.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil {
+            if modeText.range(of: pattern, options: .regularExpression) != nil {
                 info.mode = label
                 break
             }
         }
+
+        debugLog("Result: ctx=\(info.context ?? "nil") model=\(info.model ?? "nil") mode=\(info.mode ?? "nil") effort=\(info.effort ?? "nil") cost=\(info.cost ?? "nil")")
 
         return info
     }
