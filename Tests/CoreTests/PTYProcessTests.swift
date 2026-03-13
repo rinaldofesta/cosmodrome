@@ -17,7 +17,8 @@ final class PTYProcessTests: XCTestCase {
         // Read output
         var buffer = [UInt8](repeating: 0, count: 1024)
         let bytesRead = read(result.fd, &buffer, 1024)
-        XCTAssertTrue(bytesRead > 0)
+        XCTAssertTrue(bytesRead > 0, "read() returned \(bytesRead)")
+        guard bytesRead > 0 else { close(result.fd); return }
 
         let output = String(bytes: buffer[0..<bytesRead], encoding: .utf8) ?? ""
         XCTAssertTrue(output.contains("hello"), "Expected 'hello' in output, got: \(output)")

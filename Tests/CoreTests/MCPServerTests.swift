@@ -35,7 +35,7 @@ final class MCPServerTests: XCTestCase {
     }
 
     func testToolCount() {
-        XCTAssertEqual(MCPServer.toolDefinitions.count, 8)
+        XCTAssertEqual(MCPServer.toolDefinitions.count, 9)
     }
 
     func testRequiredParameters() {
