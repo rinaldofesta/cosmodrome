@@ -32,7 +32,7 @@ final class TerminalContentView: NSView {
     private var isDragging = false
     private var lastBackingScale: CGFloat = 0
 
-    override init(frame frameRect: NSRect) {
+    init(frame frameRect: NSRect, userConfig: UserConfig? = nil) {
         self.metalView = MTKView(frame: frameRect)
         super.init(frame: frameRect)
 
@@ -48,7 +48,7 @@ final class TerminalContentView: NSView {
             metalView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
 
-        renderer = TerminalRenderer(metalView: metalView)
+        renderer = TerminalRenderer(metalView: metalView, userConfig: userConfig)
         if renderer == nil {
             FileHandle.standardError.write("[Cosmodrome] Metal renderer failed to initialize\n".data(using: .utf8)!)
         }

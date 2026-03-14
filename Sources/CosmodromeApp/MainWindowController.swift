@@ -24,11 +24,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
     private var appearanceObserver: NSObjectProtocol?
     private var fleetOverlayHost: NSHostingView<FleetOverviewView>?
     private var fleetViewVisible = false
+    private let userConfig: UserConfig?
 
     /// User's preferred shell from $SHELL, falling back to /bin/zsh.
     private static let defaultShell: String = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
 
     init() {
+        self.userConfig = Self.loadUserConfig()
         // Clear any saved frame from previous broken runs
         NSWindow.removeFrame(usingName: "CosmodromeMain")
 
@@ -159,11 +161,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         sidebarHost.frame = NSRect(x: 0, y: 0, width: 200, height: splitFrame.height)
 
         // Terminal content (fills remaining width)
-        terminalContentView = TerminalContentView(frame: NSRect(
-            x: 0, y: 0,
-            width: splitFrame.width - 201,
-            height: splitFrame.height
-        ))
+        terminalContentView = TerminalContentView(
+            frame: NSRect(x: 0, y: 0, width: splitFrame.width - 201, height: splitFrame.height),
+            userConfig: userConfig
+        )
         terminalContentView.wantsLayer = true
 
         splitView.addArrangedSubview(sidebarHost)
@@ -1590,5 +1591,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
                 sessionManager.stopSession(session)
             }
         }
+    }
+
+    private static func loadUserConfig() -> UserConfig? {
+        let path = NSString(string: "~/.config/cosmodrome/config.yml").expandingTildeInPath
+        return try? ConfigParser().parseUserConfig(at: path)
     }
 }

@@ -37,7 +37,7 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
     // Theme colors (mutable for theme switching)
     private(set) var theme: ResolvedTheme
 
-    init?(metalView: MTKView) {
+    init?(metalView: MTKView, userConfig: UserConfig? = nil) {
         guard let device = MTLCreateSystemDefaultDevice() else { return nil }
         self.device = device
 
@@ -47,7 +47,7 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
         self.theme = ResolvedTheme(theme: .dark)
 
         let scale = NSScreen.main?.backingScaleFactor ?? 2.0
-        let fm = FontManager(scale: scale)
+        let fm = FontManager(config: userConfig?.font, scale: scale)
         self.fontManager = fm
         self.atlas = GlyphAtlas(device: device, fontManager: fm)
 

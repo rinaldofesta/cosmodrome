@@ -18,7 +18,10 @@ final class FontManager {
     private let lineHeight: CGFloat
     let defaultFontSize: CGFloat
 
-    init(family: String = "JetBrainsMono Nerd Font Mono", size: CGFloat = 13, scale: CGFloat = 2.0, lineHeight: CGFloat = 1.2) {
+    init(config: Core.UserConfig.FontConfig? = nil, scale: CGFloat = 2.0) {
+        let family = config?.family ?? "JetBrainsMono Nerd Font Mono"
+        let size = config?.size.map { CGFloat($0) } ?? 13
+        let lineHeight = config?.lineHeight.map { CGFloat($0) } ?? 1.2
         self.family = family
         self.scale = scale
         self.lineHeight = lineHeight
