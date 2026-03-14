@@ -1,0 +1,27 @@
+name: "Daobeam"
+
+colors:
+  foreground: "#171717"
+  background: "#E0DBC7"
+  cursor: "#171717"
+  selection: "#C8D5E0"
+
+  # ANSI colors (derived from Daobeam's token palette)
+  black: "#171717"
+  red: "#880000"
+  green: "#005800"
+  yellow: "#B95C00"
+  blue: "#000088"
+  magenta: "#880088"
+  cyan: "#008888"
+  white: "#D1CAAB"
+
+  # Bright ANSI colors
+  bright_black: "#666666"
+  bright_red: "#CC3333"
+  bright_green: "#009100"
+  bright_yellow: "#DAA520"
+  bright_blue: "#0074C1"
+  bright_magenta: "#AA44AA"
+  bright_cyan: "#00AAAA"
+  bright_white: "#EDEBDE"

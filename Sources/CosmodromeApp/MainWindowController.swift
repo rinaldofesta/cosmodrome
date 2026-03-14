@@ -13,6 +13,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
     private var completionBarHost: NSHostingView<AnyView>?
     private var activityLogVisible = false
     private var isDarkTheme = true
+    private var customTheme: Theme?
     private var mcpServer: MCPServer?
     private var mcpBridge: MCPBridge?
     private var hookServer: HookServer?
@@ -58,6 +59,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         setupCompletionActions()
         setupTerminalNotifications()
         restoreOrCreateDefaultProject()
+        customTheme = Self.resolveTheme(named: userConfig?.theme)
         syncWithSystemAppearance()
         observeAppearanceChanges()
     }
@@ -547,6 +549,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
             toggleState: isDarkTheme
         ) { [weak self] in
             guard let self else { return }
+            self.customTheme = nil
             self.isDarkTheme.toggle()
             self.applyTheme(self.isDarkTheme ? .dark : .light)
         })
@@ -695,20 +698,55 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
     // MARK: - Theme
 
     private func applyTheme(_ theme: Theme) {
+        ThemeState.shared.apply(theme)
         terminalContentView.renderer?.applyTheme(theme, metalView: terminalContentView.metalView)
         let bg = parseHexColor(theme.colors.background) ?? (r: Float(0.1), g: Float(0.1), b: Float(0.12))
         window?.backgroundColor = NSColor(
             red: CGFloat(bg.r), green: CGFloat(bg.g), blue: CGFloat(bg.b), alpha: 1.0
         )
-        // Sync window chrome with theme — this triggers DS adaptive colors to re-resolve
-        window?.appearance = NSAppearance(named: theme.name == "Light" ? .aqua : .darkAqua)
+        // Sync window chrome with theme — detect light vs dark by background luminance
+        let isLight = isLightBackground(r: bg.r, g: bg.g, b: bg.b)
+        window?.appearance = NSAppearance(named: isLight ? .aqua : .darkAqua)
         // Refresh CALayer overlays (they use resolved CGColors, not dynamic)
         terminalContentView.updateLayout()
     }
 
     private func syncWithSystemAppearance() {
-        isDarkTheme = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        applyTheme(isDarkTheme ? .dark : .light)
+        if let custom = customTheme {
+            applyTheme(custom)
+        } else {
+            isDarkTheme = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            applyTheme(isDarkTheme ? .dark : .light)
+        }
+    }
+
+    /// Resolve a theme name from user config to a Theme object.
+    /// Checks bundled Resources/Themes/ first, then falls back to built-in dark/light.
+    private static func resolveTheme(named name: String?) -> Theme? {
+        guard let name, name != "dark", name != "light" else { return nil }
+
+        if let bundleURL = Bundle.main.url(forResource: name, withExtension: "yml", subdirectory: "Themes") {
+            do {
+                return try ConfigParser().parseTheme(at: bundleURL.path)
+            } catch {
+                FileHandle.standardError.write(
+                    "[Cosmodrome] Failed to load theme '\(name)': \(error)\n".data(using: .utf8)!
+                )
+            }
+        }
+
+        let userThemePath = NSString(string: "~/.config/cosmodrome/themes/\(name).yml").expandingTildeInPath
+        if FileManager.default.fileExists(atPath: userThemePath) {
+            do {
+                return try ConfigParser().parseTheme(at: userThemePath)
+            } catch {
+                FileHandle.standardError.write(
+                    "[Cosmodrome] Failed to load user theme '\(name)': \(error)\n".data(using: .utf8)!
+                )
+            }
+        }
+
+        return nil
     }
 
     private func observeAppearanceChanges() {
