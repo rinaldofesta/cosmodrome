@@ -44,7 +44,7 @@ public func spawnPTY(
         env["TERM"] = "xterm-256color"
         env["COLORTERM"] = "truecolor"
         env["TERM_PROGRAM"] = "Cosmodrome"
-        env["TERM_PROGRAM_VERSION"] = "0.1.0"
+        env["TERM_PROGRAM_VERSION"] = "0.2.0"
         // Ensure proper UTF-8 locale for Unicode rendering
         if env["LANG"] == nil && env["LC_ALL"] == nil {
             env["LANG"] = "en_US.UTF-8"

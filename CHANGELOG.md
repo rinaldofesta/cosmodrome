@@ -4,7 +4,7 @@ All notable changes to Cosmodrome are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.2.0] - 2026-03-14
 
 ### Added
 - **Session Narrative** -- heuristic-based narrative engine (`SessionNarrative`) replaces raw state labels with contextual descriptions. "Working" becomes "Editing auth module -- 8 files, 2m". "Error" becomes "Error: compile error in auth.ts". Zero LLM, zero latency, works offline.

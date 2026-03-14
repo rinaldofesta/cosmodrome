@@ -58,7 +58,7 @@ public enum StuckDetector {
         guard errorToWorkingCycles >= minRetries else { return nil }
 
         // Calculate loop duration
-        let firstError = errorEvents.first!.timestamp
+        guard let firstError = errorEvents.first?.timestamp else { return nil }
         let duration = Date().timeIntervalSince(firstError)
 
         // Try to identify the error pattern
