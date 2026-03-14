@@ -17,6 +17,12 @@ final class TerminalContentView: NSView {
     private var hoveredSessionId: UUID?
     private var sessionTrackingArea: NSTrackingArea?
 
+    // Phantom scroll guard: suppress scroll events shortly after focus changes.
+    // macOS can deliver stale scroll events with outdated state after window/view
+    // focus transitions, causing phantom scrolling. (Same root cause as Ghostty #11276.)
+    private var lastFocusChangeTime: CFAbsoluteTime = 0
+    private let focusGuardInterval: CFAbsoluteTime = 0.15 // 150ms
+
     // Current session state
     var sessions: [(session: Session, backend: TerminalBackend)] = [] {
         didSet {
@@ -113,7 +119,16 @@ final class TerminalContentView: NSView {
 
     override var acceptsFirstResponder: Bool { true }
 
-    override func becomeFirstResponder() -> Bool { true }
+    override func becomeFirstResponder() -> Bool {
+        lastFocusChangeTime = CFAbsoluteTimeGetCurrent()
+        return true
+    }
+
+    /// Called by MainWindowController when the window becomes key, so the focus
+    /// guard also covers app-level focus changes (not just first-responder changes).
+    func resetFocusGuard() {
+        lastFocusChangeTime = CFAbsoluteTimeGetCurrent()
+    }
 
     // MARK: - Layout
 
@@ -173,6 +188,7 @@ final class TerminalContentView: NSView {
             // cellW/cellH are in scaled font units (font created at size * backingScaleFactor)
             let cellW = renderer.fontManager.cellMetrics.width
             let cellH = renderer.fontManager.cellMetrics.height
+            guard cellW > 0 && cellH > 0 && insetFrame.width > 0 && insetFrame.height > 0 else { continue }
             let frameCols = max(1, Int(insetFrame.width * scale / cellW))
             let frameRows = max(1, Int(insetFrame.height * scale / cellH))
 
@@ -439,12 +455,26 @@ final class TerminalContentView: NSView {
     // MARK: - Scroll
 
     override func scrollWheel(with event: NSEvent) {
+        // Suppress cancelled/mayBegin phases — these are not actionable scroll input.
+        if event.phase == .cancelled || event.phase == .mayBegin { return }
+
+        // Suppress scroll events shortly after focus changes to prevent phantom scrolling
+        // from stale NSEvent state delivered by macOS during window/view transitions.
+        let timeSinceFocus = CFAbsoluteTimeGetCurrent() - lastFocusChangeTime
+        if timeSinceFocus < focusGuardInterval { return }
+
         guard let focusedId = focusedSessionId,
               let pair = sessions.first(where: { $0.session.id == focusedId }),
               pair.session.ptyFD >= 0 else {
             super.scrollWheel(with: event)
             return
         }
+
+        let backend = pair.backend
+
+        // Suppress momentum scroll events when mouse reporting is active.
+        // TUI apps handle their own scroll semantics; momentum would send extra events.
+        if event.momentumPhase != [] && backend.isMouseReportingActive { return }
 
         let deltaY = event.scrollingDeltaY
         guard deltaY != 0 else { return }
@@ -458,8 +488,6 @@ final class TerminalContentView: NSView {
             lines = max(1, Int(abs(deltaY)))
         }
         let scrollUp = deltaY > 0
-
-        let backend = pair.backend
 
         if backend.isMouseReportingActive {
             // App has mouse reporting on — send proper mouse wheel events.

@@ -216,6 +216,52 @@ public final class SwiftTermBackend: TerminalBackend {
         return result
     }
 
+    /// Read bottom N rows as trimmed strings in a single locked + yDisp-snapped pass.
+    /// Eliminates per-cell yDisp mutations that cause scroll jitter during rapid output.
+    /// Caller must NOT hold the lock.
+    public func readRowsAtBottom(count: Int) -> [String] {
+        _lock.lock()
+        defer { _lock.unlock() }
+        guard hasData else { return [] }
+
+        let rowCount = terminal.rows
+        let colCount = terminal.cols
+        let scanRows = min(rowCount, count)
+
+        // Snap to bottom ONCE (instead of per-cell in cellAtBottom)
+        let savedYDisp = terminal.buffer.yDisp
+        if _scrollOffset > 0 {
+            terminal.buffer.yDisp = _bottomPosition
+        }
+
+        var result: [String] = []
+        result.reserveCapacity(scanRows)
+        for row in max(0, rowCount - scanRows)..<rowCount {
+            var line = ""
+            line.reserveCapacity(colCount)
+            for col in 0..<colCount {
+                guard let ch = terminal.getCharData(col: col, row: row) else {
+                    line.append(" ")
+                    continue
+                }
+                let cp = ch.getCharacter().unicodeScalars.first?.value ?? 32
+                if cp >= 32 && cp < 0x110000 && cp != 0 {
+                    line.append(Character(Unicode.Scalar(cp)!))
+                } else {
+                    line.append(" ")
+                }
+            }
+            while line.hasSuffix(" ") { line.removeLast() }
+            result.append(line)
+        }
+
+        // Restore ONCE
+        if _scrollOffset > 0 {
+            terminal.buffer.yDisp = savedYDisp
+        }
+        return result
+    }
+
     public func pendingSendData() -> Data? {
         delegate.takePendingData()
     }

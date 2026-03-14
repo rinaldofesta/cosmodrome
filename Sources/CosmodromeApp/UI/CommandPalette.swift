@@ -12,11 +12,13 @@ struct PaletteAction: Identifiable {
     let category: String?
     let isToggle: Bool
     let toggleState: Bool
+    let stateColor: Color?
     let action: () -> Void
 
     init(_ title: String, subtitle: String? = nil, icon: String = "terminal",
          shortcut: String? = nil, category: String? = nil,
          isToggle: Bool = false, toggleState: Bool = false,
+         stateColor: Color? = nil,
          action: @escaping () -> Void) {
         self.title = title
         self.subtitle = subtitle
@@ -25,6 +27,7 @@ struct PaletteAction: Identifiable {
         self.category = category
         self.isToggle = isToggle
         self.toggleState = toggleState
+        self.stateColor = stateColor
         self.action = action
     }
 }
@@ -232,10 +235,19 @@ private struct PaletteRow: View {
 
     var body: some View {
         HStack(spacing: Spacing.md) {
-            Image(systemName: action.icon)
-                .font(Typo.callout)
-                .foregroundColor(isSelected ? DS.textPrimary : DS.textTertiary)
-                .frame(width: 20)
+            ZStack {
+                Image(systemName: action.icon)
+                    .font(Typo.callout)
+                    .foregroundColor(isSelected ? DS.textPrimary : DS.textTertiary)
+                    .frame(width: 20)
+
+                if let color = action.stateColor {
+                    Circle()
+                        .fill(color)
+                        .frame(width: 6, height: 6)
+                        .offset(x: 8, y: -6)
+                }
+            }
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(action.title)

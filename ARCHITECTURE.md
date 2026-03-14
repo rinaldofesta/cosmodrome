@@ -217,6 +217,9 @@ Project (1) ──── (N) Session
    │ totalCost          │ backend: TerminalBackend
    │ totalTasks         │ ptyFD: Int32
    │ agentCounts        │ stats: SessionStats (cost, tasks, files, errors)
+   │                    │ narrative: SessionNarrative.Summary?
+   │                    │ stuckInfo: StuckDetector.StuckInfo?
+   │                    │ agentSince: Date?
 ```
 
 Both Project and Session are `@Observable`. Changing any property automatically updates bound UI. The `agentModel` is detected from output and shown in the status bar next to the agent state indicator.
@@ -304,27 +307,66 @@ Key design choices:
 - **In-memory first.** The log lives in RAM as a `[ActivityEvent]` array. Flushed to disk periodically (every 60s) and on quit. No SQLite, no database.
 - **Bounded.** Max 10,000 events per project. Oldest events are evicted when the limit is hit.
 
+## Session Narrative
+
+`SessionNarrative` transforms raw state + activity events into human-readable summaries. It replaces bare state labels ("working", "needsInput") with contextual descriptions throughout the UI (session cards, fleet cards, status bar).
+
+```
+State + Events → SessionNarrative.summarize() → Summary(headline, detail, needsAttention)
+
+Working + [fileWrite(auth.ts), fileWrite(auth.test.ts)]
+  → "Editing auth — 2 files, 1m"
+
+NeedsInput + promptContext("delete test fixtures")
+  → "Waiting: delete test fixtures"
+
+Error + StuckInfo(retryCount: 5, pattern: "compile error")
+  → "Stuck: compile error (5x, 3m)"
+
+Inactive + [taskCompleted(300s)] + cost($4.20)
+  → "Done. 15 files, tests passing, 5m, $4.20."
+```
+
+All logic is heuristic — zero LLM calls, zero latency, works offline. `SessionManager` updates the narrative every 2 seconds (throttled).
+
+## Stuck Detection
+
+`StuckDetector` identifies error→retry loops by scanning `ActivityLog` events. When 3+ error→working→error cycles occur within a 10-minute window, it returns a `StuckInfo` with retry count, duration, and identified pattern (compile error, test failure, permission denied, timeout).
+
+Stuck state flows into `SessionNarrative` (overrides normal state summary) and `SessionThumbnail`/`FleetOverviewView` (shows "stuck" badge with `arrow.2.circlepath` icon).
+
+## Event Grouping
+
+`ActivityLog.groupEvents()` collapses related events into logical units:
+
+- **Task blocks** — `taskStarted` → events → `taskCompleted` (with file count and duration header)
+- **File clusters** — 3+ `fileWrite` events within 60s (with common directory detection)
+- **State flicker** — 3+ consecutive `stateChanged` events (suppresses noise)
+
+Used by `ActivityLogView` for collapsible, scannable timelines.
+
+## Buffer State Scanner
+
+`BufferStateScanner` reads rendered terminal buffer cells directly (via `readRowsAtBottom`) to detect Claude Code TUI state. This is immune to ANSI escape stripping issues that affect raw output parsing.
+
+Returns a `BufferStateResult` with state, confidence level (high/medium/none), and reason. High confidence overrides `AgentDetector` state; medium only promotes from inactive; none is ignored.
+
+`SessionManager.runBufferScans()` reads the buffer ONCE per output event and runs all scans (status line, agent state, prompt detection, agent exit) against the shared snapshot — single lock acquisition instead of 4 separate passes.
+
 ## Completion Actions
 
-When an agent finishes a task (state transitions from `.working` to `.inactive`), Cosmodrome shows a transient suggestion bar at the bottom of that session's terminal view:
+When an agent finishes a task (state transitions from `.working` to `.inactive`), Cosmodrome shows a transient suggestion bar with a rich summary:
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│ ✓ Task completed (4m 12s, 3 files changed)                   │
-│   [Open diff]  [Run tests]  [Start review agent]  [Dismiss]  │
-└──────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│ ✓ Editing auth module. 15 files, tests passing, 5m, $4.20.          │
+│   [Open diff (15 files)]  [Verify tests]  [Start review agent]      │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
-Actions:
-
-- **Open diff** — runs `git diff` in a new session, scoped to files the agent touched
-- **Run tests** — launches the project's test command in a new session
-- **Start review agent** — opens a new Claude Code session pre-filled with: "Review the changes in [list of files] and check for bugs, edge cases, and style issues"
-- **Dismiss** — hides the bar, does nothing
+`CompletionActions.suggest(context:)` receives full `CompletionContext` (files, duration, stats, events, narrative, stuck info) and generates context-aware suggestions. Test-aware: shows "Re-run tests (were failing)" when tests failed during the task.
 
 The bar auto-dismisses after 30 seconds if untouched. Never blocks input. Never auto-executes. The developer always chooses.
-
-This is not a verifier pattern (like Intent). We don't validate against a spec. We facilitate the developer's natural next step after an agent finishes work.
 
 ---
 

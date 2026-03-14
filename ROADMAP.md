@@ -260,16 +260,18 @@ Each version gets a branch. Each feature within a version gets a commit or small
 
 ### v0.2 Checklist
 
-- [ ] `SessionNarrative` — core narrative engine
-- [ ] Activity log event grouping
-- [ ] Stuck detection
-- [ ] Richer completion actions with context
-- [ ] Integrate narrative into SessionThumbnail
-- [ ] Integrate narrative into FleetOverviewView
-- [ ] Integrate narrative into AgentStatusBarView
-- [ ] Tests for SessionNarrative
-- [ ] Tests for event grouping
-- [ ] Tests for stuck detection
+- [x] `SessionNarrative` — core narrative engine
+- [x] Activity log event grouping
+- [x] Stuck detection
+- [x] Richer completion actions with context
+- [x] Integrate narrative into SessionThumbnail
+- [x] Integrate narrative into FleetOverviewView
+- [x] Integrate narrative into AgentStatusBarView
+- [x] Tests for SessionNarrative (10 tests)
+- [x] Tests for event grouping (4 tests in StuckDetectorTests)
+- [x] Tests for stuck detection (5 tests)
+- [x] Tests for CompletionActions (12 tests)
+- [x] Bug fixes: mode badge, task completion notification, case-insensitive ctx, status timeout, CWD resolution, thread safety
 
 ### v0.3 Checklist
 

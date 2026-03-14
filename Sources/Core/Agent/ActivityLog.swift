@@ -223,6 +223,189 @@ public struct ActivitySummary {
     }
 }
 
+// MARK: - Event Grouping
+
+/// A group of related events collapsed into a logical unit.
+public struct EventGroup {
+    /// Human-readable header for this group.
+    public let header: String
+    /// The events in this group, ordered by time.
+    public let events: [ActivityEvent]
+    /// Time span of the group.
+    public let startTime: Date
+    public let endTime: Date
+    /// Group type for rendering.
+    public let kind: GroupKind
+
+    public enum GroupKind {
+        case task            // taskStarted → events → taskCompleted
+        case fileCluster     // Multiple fileWrite events to related paths
+        case errorRetry      // Multiple error events (retry loop)
+        case stateFlicker    // Rapid state transitions
+    }
+
+    public init(header: String, events: [ActivityEvent], startTime: Date, endTime: Date, kind: GroupKind) {
+        self.header = header
+        self.events = events
+        self.startTime = startTime
+        self.endTime = endTime
+        self.kind = kind
+    }
+}
+
+extension ActivityLog {
+
+    /// Group events for a session into logical units.
+    /// Returns a mix of individual events and grouped events, in chronological order.
+    public func groupedEvents(for sessionId: UUID) -> [GroupedItem] {
+        let sessionEvents = events(for: sessionId)
+        return Self.groupEvents(sessionEvents)
+    }
+
+    /// Group events into logical units.
+    public static func groupEvents(_ events: [ActivityEvent]) -> [GroupedItem] {
+        guard !events.isEmpty else { return [] }
+        var result: [GroupedItem] = []
+        var i = 0
+
+        while i < events.count {
+            // Try to match a task block: taskStarted → ... → taskCompleted
+            if case .taskStarted = events[i].kind {
+                if let (group, nextIdx) = matchTaskBlock(events: events, startIdx: i) {
+                    result.append(.group(group))
+                    i = nextIdx
+                    continue
+                }
+            }
+
+            // Try to match file cluster: 3+ fileWrite events within 60s
+            if case .fileWrite = events[i].kind {
+                if let (group, nextIdx) = matchFileCluster(events: events, startIdx: i) {
+                    result.append(.group(group))
+                    i = nextIdx
+                    continue
+                }
+            }
+
+            // Try to match state flicker: 3+ consecutive stateChanged events
+            if case .stateChanged = events[i].kind {
+                if let (group, nextIdx) = matchStateFlicker(events: events, startIdx: i) {
+                    result.append(.group(group))
+                    i = nextIdx
+                    continue
+                }
+            }
+
+            // No grouping — emit as individual event
+            result.append(.single(events[i]))
+            i += 1
+        }
+
+        return result
+    }
+
+    /// A chronologically ordered item: either a single event or a group.
+    public enum GroupedItem {
+        case single(ActivityEvent)
+        case group(EventGroup)
+
+        public var timestamp: Date {
+            switch self {
+            case .single(let e): return e.timestamp
+            case .group(let g): return g.startTime
+            }
+        }
+    }
+
+    // MARK: - Matchers
+
+    private static func matchTaskBlock(events: [ActivityEvent], startIdx: Int) -> (EventGroup, Int)? {
+        var endIdx = startIdx + 1
+        while endIdx < events.count {
+            if case .taskCompleted(let duration) = events[endIdx].kind {
+                let taskEvents = Array(events[startIdx...endIdx])
+                let files = taskEvents.compactMap { e -> String? in
+                    if case .fileWrite(let p, _, _) = e.kind { return p }
+                    return nil
+                }
+                let uniqueFiles = Set(files).count
+                let durationStr = SessionStats.formatDuration(duration)
+                var header = "Task (\(durationStr))"
+                if uniqueFiles > 0 {
+                    header = "Task: \(uniqueFiles) files, \(durationStr)"
+                }
+                return (EventGroup(
+                    header: header,
+                    events: taskEvents,
+                    startTime: events[startIdx].timestamp,
+                    endTime: events[endIdx].timestamp,
+                    kind: .task
+                ), endIdx + 1)
+            }
+            // Don't cross another taskStarted
+            if case .taskStarted = events[endIdx].kind { break }
+            endIdx += 1
+        }
+        return nil // No matching taskCompleted
+    }
+
+    private static func matchFileCluster(events: [ActivityEvent], startIdx: Int) -> (EventGroup, Int)? {
+        var endIdx = startIdx + 1
+        let windowEnd = events[startIdx].timestamp.addingTimeInterval(60)
+
+        while endIdx < events.count,
+              events[endIdx].timestamp < windowEnd,
+              case .fileWrite = events[endIdx].kind {
+            endIdx += 1
+        }
+
+        let count = endIdx - startIdx
+        guard count >= 3 else { return nil }
+
+        let clusterEvents = Array(events[startIdx..<endIdx])
+        let paths = clusterEvents.compactMap { e -> String? in
+            if case .fileWrite(let p, _, _) = e.kind { return p }
+            return nil
+        }
+        let uniquePaths = Set(paths)
+
+        // Try to find common directory
+        let dirs = uniquePaths.map { ($0 as NSString).deletingLastPathComponent }
+        let commonDir = Set(dirs).count == 1 ? (dirs.first ?? "") : ""
+        let dirName = commonDir.isEmpty ? "" : " in \((commonDir as NSString).lastPathComponent)"
+
+        let header = "Modified \(uniquePaths.count) files\(dirName)"
+        return (EventGroup(
+            header: header,
+            events: clusterEvents,
+            startTime: events[startIdx].timestamp,
+            endTime: events[endIdx - 1].timestamp,
+            kind: .fileCluster
+        ), endIdx)
+    }
+
+    private static func matchStateFlicker(events: [ActivityEvent], startIdx: Int) -> (EventGroup, Int)? {
+        var endIdx = startIdx + 1
+
+        while endIdx < events.count, case .stateChanged = events[endIdx].kind {
+            endIdx += 1
+        }
+
+        let count = endIdx - startIdx
+        guard count >= 3 else { return nil }
+
+        let flickerEvents = Array(events[startIdx..<endIdx])
+        let header = "\(count) state transitions"
+        return (EventGroup(
+            header: header,
+            events: flickerEvents,
+            startTime: events[startIdx].timestamp,
+            endTime: events[endIdx - 1].timestamp,
+            kind: .stateFlicker
+        ), endIdx)
+    }
+}
+
 // MARK: - EventKind helpers
 
 extension ActivityEvent.EventKind {

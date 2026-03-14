@@ -260,8 +260,8 @@ private struct ProjectRow: View {
             Spacer()
 
             Text("\(project.sessions.count)")
-                .font(Typo.body)
-                .foregroundColor(DS.textTertiary)
+                .font(Typo.captionMono)
+                .foregroundColor(DS.textSecondary)
 
             if project.aggregateState != .inactive {
                 agentStateIndicator(project.aggregateState)

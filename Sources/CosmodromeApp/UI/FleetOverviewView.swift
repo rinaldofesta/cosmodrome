@@ -281,7 +281,7 @@ struct AgentCardView: View {
                 }
             }
 
-            // Row 2: Agent type + model + state
+            // Row 2: Agent type + model + state badge
             HStack(spacing: Spacing.xs) {
                 Text(session.agentType?.capitalized ?? "Agent")
                     .font(Typo.footnoteMedium)
@@ -297,9 +297,23 @@ struct AgentCardView: View {
 
                 Spacer()
 
-                Text(stateLabel)
-                    .font(Typo.footnoteMedium)
-                    .foregroundColor(DS.stateColor(for: session.agentState))
+                if session.stuckInfo != nil {
+                    Label("stuck", systemImage: "arrow.2.circlepath")
+                        .font(Typo.footnoteMedium)
+                        .foregroundColor(DS.stateError)
+                } else {
+                    Text(stateLabel)
+                        .font(Typo.footnoteMedium)
+                        .foregroundColor(DS.stateColor(for: session.agentState))
+                }
+            }
+
+            // Row 2b: Narrative headline
+            if let narrative = session.narrative {
+                Text(narrative.headline)
+                    .font(Typo.footnote)
+                    .foregroundColor(narrativeColor)
+                    .lineLimit(2)
             }
 
             // Row 3: Stats — context, cost, idle duration
@@ -419,8 +433,18 @@ struct AgentCardView: View {
         return DS.textTertiary
     }
 
+    private var narrativeColor: Color {
+        if session.stuckInfo != nil { return DS.stateError.opacity(0.9) }
+        switch session.agentState {
+        case .working: return DS.textSecondary
+        case .needsInput: return DS.stateNeedsInput.opacity(0.9)
+        case .error: return DS.stateError.opacity(0.8)
+        case .inactive: return DS.textTertiary
+        }
+    }
+
     private var needsAttention: Bool {
-        session.agentState == .needsInput || session.agentState == .error
+        session.stuckInfo != nil || session.agentState == .needsInput || session.agentState == .error
     }
 
     private var cardBgColor: Color {

@@ -17,15 +17,16 @@ struct SessionThumbnailView: View {
     @FocusState private var isNameFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        HStack(spacing: 0) {
+            // Colored left border strip — primary state indicator
+            RoundedRectangle(cornerRadius: 1.5)
+                .fill(statusColor)
+                .frame(width: 3)
+                .padding(.vertical, 2)
+
+            VStack(alignment: .leading, spacing: 0) {
             // Row 1: Name + state indicators
             HStack(spacing: Spacing.sm) {
-                // State dot (left edge, always visible)
-                Circle()
-                    .fill(statusColor)
-                    .frame(width: 7, height: 7)
-                    .shadow(color: statusColor.opacity(isFocused ? 0.5 : 0), radius: 3)
-
                 if isEditing {
                     AutoSelectTextField(text: $editName, onCommit: commitRename)
                         .font(Typo.footnoteMedium)
@@ -65,7 +66,7 @@ struct SessionThumbnailView: View {
             }
             .padding(.horizontal, Spacing.sm)
             .padding(.top, Spacing.sm)
-            .padding(.bottom, 3)
+            .padding(.bottom, 4)
 
             // Row 2: Subtitle — command / agent info / model
             HStack(spacing: Spacing.xs) {
@@ -101,7 +102,12 @@ struct SessionThumbnailView: View {
 
                 Spacer()
 
-                if session.isAgent && session.agentState == .needsInput {
+                if session.isAgent && session.stuckInfo != nil {
+                    Label("stuck", systemImage: "arrow.2.circlepath")
+                        .font(Typo.caption)
+                        .foregroundColor(DS.stateError)
+                        .transition(.opacity)
+                } else if session.isAgent && session.agentState == .needsInput {
                     Text("needs input")
                         .font(Typo.caption)
                         .foregroundColor(DS.stateNeedsInput)
@@ -128,6 +134,16 @@ struct SessionThumbnailView: View {
             }
             .padding(.horizontal, Spacing.sm)
             .padding(.bottom, 4)
+
+            // Row 2b: Narrative headline (replaces raw state with contextual description)
+            if session.isAgent, let narrative = session.narrative {
+                Text(narrative.headline)
+                    .font(Typo.caption)
+                    .foregroundColor(narrativeColor)
+                    .lineLimit(2)
+                    .padding(.horizontal, Spacing.sm)
+                    .padding(.bottom, 4)
+            }
 
             // Row 3: Detected ports
             if !session.detectedPorts.isEmpty {
@@ -172,7 +188,8 @@ struct SessionThumbnailView: View {
                         .padding(.bottom, Spacing.sm)
                 }
             }
-        }
+            } // end inner VStack
+        } // end HStack with left border
         .background(
             RoundedRectangle(cornerRadius: Radius.md)
                 .fill(attentionBgColor)
@@ -187,6 +204,7 @@ struct SessionThumbnailView: View {
                 .animation(Anim.quick, value: isHovered)
                 .animation(Anim.quick, value: session.agentState)
         )
+        .clipShape(RoundedRectangle(cornerRadius: Radius.md))
         .contentShape(Rectangle())
         .animation(Anim.quick, value: isHovered)
         .onHover { isHovered = $0 }
@@ -215,6 +233,12 @@ struct SessionThumbnailView: View {
             || session.agentCost != nil || session.agentEffort != nil
     }
 
+    /// Whether we've waited long enough to stop showing "Collecting status...".
+    private var statusCollectionTimedOut: Bool {
+        guard let since = session.agentSince else { return false }
+        return Date().timeIntervalSince(since) > 10.0
+    }
+
     /// Agent status row: context, effort, cost, mode — always visible for agent sessions.
     @ViewBuilder
     private var agentStatusRow: some View {
@@ -241,20 +265,37 @@ struct SessionThumbnailView: View {
                             .foregroundColor(DS.textTertiary)
                     }
                 }
-                // Line 2: permission mode badge
-                HStack(spacing: Spacing.xs) {
-                    let mode = session.agentMode ?? "Default"
-                    Text(mode)
-                        .font(Typo.caption)
-                        .foregroundColor(modeColor(mode))
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(modeColor(mode).opacity(0.12))
-                        .cornerRadius(Radius.sm)
-                    Spacer()
+                // Line 2: permission mode badge (always visible when detected)
+                if let mode = session.agentMode, mode != "Default" {
+                    HStack(spacing: Spacing.xs) {
+                        Text(mode)
+                            .font(Typo.caption)
+                            .foregroundColor(modeColor(mode))
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(modeColor(mode).opacity(0.12))
+                            .cornerRadius(Radius.sm)
+                        Spacer()
+                    }
                 }
+            } else if statusCollectionTimedOut {
+                // Timed out: show minimal agent info instead of stale placeholder
+                if let model = session.agentModel {
+                    HStack(spacing: Spacing.xs) {
+                        Text(session.agentType?.capitalized ?? "Agent")
+                            .font(Typo.caption)
+                            .foregroundColor(DS.accent.opacity(0.6))
+                        Text("·")
+                            .font(Typo.caption)
+                            .foregroundColor(DS.textTertiary)
+                        Text(model)
+                            .font(Typo.caption)
+                            .foregroundColor(DS.textTertiary)
+                    }
+                }
+                // else: no data at all, hide the row entirely
             } else {
-                // Placeholder: no status data parsed yet
+                // Placeholder: still collecting
                 HStack(spacing: Spacing.xs) {
                     Image(systemName: "chart.bar.fill")
                         .font(.system(size: 7))
@@ -285,8 +326,13 @@ struct SessionThumbnailView: View {
     }
 
     private var attentionBgColor: Color {
-        if needsAttention {
-            return DS.stateColor(for: session.agentState).opacity(0.08)
+        if session.isAgent {
+            switch session.agentState {
+            case .working: return DS.stateWorking.opacity(0.04)
+            case .needsInput: return DS.stateNeedsInput.opacity(0.08)
+            case .error: return DS.stateError.opacity(0.08)
+            case .inactive: break
+            }
         }
         return isFocused ? DS.bgSelected : (isHovered ? DS.bgHover : Color.clear)
     }
@@ -303,6 +349,17 @@ struct SessionThumbnailView: View {
         return isFocused ? 1.5 : 0.5
     }
 
+    /// Color for the narrative headline — follows agent state.
+    private var narrativeColor: Color {
+        if session.stuckInfo != nil { return DS.stateError.opacity(0.9) }
+        switch session.agentState {
+        case .working: return DS.textSecondary
+        case .needsInput: return DS.stateNeedsInput.opacity(0.9)
+        case .error: return DS.stateError.opacity(0.8)
+        case .inactive: return DS.textTertiary
+        }
+    }
+
     /// Idle color escalates: gray (< 5min) → amber (5-30min) → red (30min+)
     private var idleWarningColor: Color {
         let idle = session.stats.currentIdleDuration
@@ -311,14 +368,17 @@ struct SessionThumbnailView: View {
         return DS.textTertiary
     }
 
-    /// Unified status color: agent state > running > inactive
+    /// Unified status color for left border: stuck > agent state > running > inactive
     private var statusColor: Color {
+        if session.isAgent && session.stuckInfo != nil {
+            return DS.stateError
+        }
         if session.isAgent && session.agentState != .inactive {
             return DS.stateColor(for: session.agentState)
         }
         if session.exitedUnexpectedly { return DS.stateError }
-        if session.isRunning { return DS.stateWorking.opacity(0.6) }
-        return DS.stateInactive
+        if session.isRunning { return DS.stateWorking.opacity(0.4) }
+        return DS.borderSubtle
     }
 
     private func buildPreview(backend: TerminalBackend) -> String {

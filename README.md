@@ -62,9 +62,17 @@ Deep integration with Claude Code via structured hooks. Cosmodrome receives real
 
 Detects which LLM model each agent is using (Opus, Sonnet, GPT-4, etc.) and displays it in the status bar.
 
+### Session Narrative
+
+Raw state labels are replaced with contextual descriptions everywhere in the UI. "Working" becomes "Editing auth module -- 8 files, 2m". "Error" becomes "Stuck: compile error (5x, 3m)". "Inactive" becomes "Done. 15 files, tests passing, 23 min, $4.20." Built from heuristics -- zero LLM calls, zero latency, works offline.
+
+### Stuck Detection
+
+When an agent is stuck in an error-retry loop (3+ cycles), Cosmodrome surfaces it as "stuck" with retry count and duration instead of showing a misleading "working" state. The developer knows immediately that intervention is needed.
+
 ### Completion Actions
 
-When an agent finishes a task, Cosmodrome suggests next steps -- "Open diff", "Run tests", "Start review agent" -- without ever auto-triggering them.
+When an agent finishes a task, Cosmodrome shows a rich summary ("Editing auth module. 15 files, tests passing, 5m, $4.20.") and suggests context-aware next steps -- "Open diff", "Re-run tests (were failing)", "Start review agent" -- without ever auto-triggering them.
 
 ### Session Recording
 

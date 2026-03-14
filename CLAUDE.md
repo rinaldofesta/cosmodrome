@@ -71,12 +71,15 @@ Cosmodrome/
 │   │   │   ├── PTYMultiplexer.swift        # kqueue-based I/O loop
 │   │   │   └── PTYProcess.swift            # Single PTY handle
 │   │   ├── Agent/
-│   │   │   ├── AgentDetector.swift         # Pattern matching + state + stats tracking
+│   │   │   ├── AgentDetector.swift         # Pattern matching + state + stats tracking (NSLock protected)
 │   │   │   ├── AgentPatterns.swift         # Per-agent pattern definitions
-│   │   │   ├── ActivityLog.swift           # Structured timeline of agent events
+│   │   │   ├── ActivityLog.swift           # Structured timeline + event grouping
+│   │   │   ├── BufferStateScanner.swift    # TUI buffer cell scanning for agent state
 │   │   │   ├── ModelDetector.swift         # Detect which LLM model is in use
+│   │   │   ├── SessionNarrative.swift      # Heuristic narrative engine (zero LLM)
+│   │   │   ├── StuckDetector.swift         # Error-retry loop detection
 │   │   │   ├── SessionStats.swift          # Per-session usage stats (cost, tasks, files)
-│   │   │   └── CompletionActions.swift     # Suggest next actions on task complete
+│   │   │   └── CompletionActions.swift     # Context-aware completion suggestions
 │   │   ├── Hooks/
 │   │   │   ├── HookServer.swift           # Unix socket server for agent hooks
 │   │   │   └── HookEvent.swift            # Structured hook event model
@@ -113,8 +116,12 @@ Cosmodrome/
 ├── Tests/
 │   ├── CoreTests/
 │   │   ├── AgentDetectorTests.swift
+│   │   ├── BufferStateScannerTests.swift
+│   │   ├── CompletionActionsTests.swift
 │   │   ├── ConfigParserTests.swift
 │   │   ├── PTYMultiplexerTests.swift
+│   │   ├── SessionNarrativeTests.swift
+│   │   ├── StuckDetectorTests.swift
 │   │   └── LayoutEngineTests.swift
 │   └── RendererTests/
 │       └── GlyphAtlasTests.swift

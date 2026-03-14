@@ -87,4 +87,30 @@ extension TerminalBackend {
     public func cellAtBottom(row: Int, col: Int) -> TerminalCell {
         cell(row: row, col: col)
     }
+
+    /// Read bottom N rows as trimmed strings. Default: uses cellAtBottom per-cell.
+    /// SwiftTermBackend overrides with atomic batch read (single yDisp snap/restore).
+    public func readRowsAtBottom(count: Int) -> [String] {
+        lock()
+        defer { unlock() }
+        let rowCount = rows
+        let colCount = cols
+        let scanRows = min(rowCount, count)
+        var result: [String] = []
+        for row in max(0, rowCount - scanRows)..<rowCount {
+            var line = ""
+            for col in 0..<colCount {
+                let c = cellAtBottom(row: row, col: col)
+                let cp = c.codepoint
+                if cp >= 32 && cp < 0x110000 {
+                    line.append(Character(Unicode.Scalar(cp)!))
+                } else {
+                    line.append(" ")
+                }
+            }
+            while line.hasSuffix(" ") { line.removeLast() }
+            result.append(line)
+        }
+        return result
+    }
 }

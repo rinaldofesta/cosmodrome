@@ -262,23 +262,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
     // MARK: - NSSplitViewDelegate
 
     func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        if dividerIndex == 0 {
-            return 160 // Sidebar minimum width
-        }
-        // Activity log right panel divider: minimum terminal width
-        return splitView.frame.width - 400
+        160 // Sidebar minimum width
     }
 
     func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        if dividerIndex == 0 {
-            return 280 // Sidebar maximum width
-        }
-        // Activity log right panel divider: max panel width
-        return splitView.frame.width - 250
+        280 // Sidebar maximum width
     }
 
     func splitView(_ splitView: NSSplitView, canCollapseSubview subview: NSView) -> Bool {
-        false // Never collapse any pane
+        false // Never collapse either pane
     }
 
     private func restoreOrCreateDefaultProject() {
@@ -601,20 +593,17 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         // --- Sessions ---
         if let project = projectStore.activeProject {
             for (i, session) in project.sessions.enumerated() {
-                let stateStr: String
-                switch session.agentState {
-                case .working: stateStr = " [working]"
-                case .needsInput: stateStr = " [needs input]"
-                case .error: stateStr = " [error]"
-                case .inactive: stateStr = ""
-                }
+                let sessionStateColor: Color? = session.isAgent && session.agentState != .inactive
+                    ? DS.stateColor(for: session.agentState)
+                    : nil
                 let shortcut = i < 9 ? "\u{2318}\u{21E7}\(i + 1)" : nil
                 actions.append(PaletteAction(
-                    "Focus \(session.name)\(stateStr)",
+                    "Focus \(session.name)",
                     subtitle: "\(project.name) / Session \(i + 1)",
                     icon: session.isAgent ? "cpu" : "terminal",
                     shortcut: shortcut,
-                    category: "Sessions"
+                    category: "Sessions",
+                    stateColor: sessionStateColor
                 ) { [weak self] in
                     self?.focusSession(session.id)
                 })
@@ -1081,9 +1070,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
                 hideActivityLogOverlay()
                 activityLogExpanded = false
             }
-            showActivityLogSidebar()
+            showActivityLogPanel()
         } else {
-            hideActivityLogSidebar()
+            hideActivityLogPanel()
         }
     }
 
@@ -1091,9 +1080,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         activityLogExpanded.toggle()
 
         if activityLogExpanded {
-            // Close sidebar if open
+            // Close panel if open
             if activityLogVisible {
-                hideActivityLogSidebar()
+                hideActivityLogPanel()
                 activityLogVisible = false
             }
             showActivityLogOverlay()
@@ -1102,37 +1091,45 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         }
     }
 
-    private func showActivityLogSidebar() {
-        guard splitView != nil else { return }
-
-        // Remove existing sidebar if any
+    private func showActivityLogPanel() {
+        // Show compact activity log as a right-side panel overlaid on the terminal content view
         activityLogSidebarHost?.removeFromSuperview()
 
         let logView = ActivityLogView(
             projects: projectStore.projects,
             compact: true,
             onFocusSession: { [weak self] projectId, sessionId in
-                self?.hideActivityLogSidebar()
+                self?.hideActivityLogPanel()
                 self?.activityLogVisible = false
                 self?.jumpToSession(projectId: projectId, sessionId: sessionId)
             },
+            onExpand: { [weak self] in
+                self?.hideActivityLogPanel()
+                self?.activityLogVisible = false
+                self?.activityLogExpanded = true
+                self?.showActivityLogOverlay()
+            },
             onDismiss: { [weak self] in
-                self?.hideActivityLogSidebar()
+                self?.hideActivityLogPanel()
                 self?.activityLogVisible = false
             }
         )
 
         let host = NSHostingView(rootView: AnyView(logView))
-        host.frame = NSRect(x: 0, y: 0, width: 280, height: splitView.frame.height)
-        splitView.addArrangedSubview(host)
+        let panelWidth: CGFloat = 280
+        let contentBounds = terminalContentView.bounds
+        host.frame = NSRect(
+            x: contentBounds.width - panelWidth,
+            y: 0,
+            width: panelWidth,
+            height: contentBounds.height
+        )
+        host.autoresizingMask = [.minXMargin, .height]
+        terminalContentView.addSubview(host)
         activityLogSidebarHost = host
-
-        // Position the right panel divider
-        let targetPos = splitView.frame.width - 280
-        splitView.setPosition(targetPos, ofDividerAt: 1)
     }
 
-    private func hideActivityLogSidebar() {
+    private func hideActivityLogPanel() {
         activityLogSidebarHost?.removeFromSuperview()
         activityLogSidebarHost = nil
         window?.makeFirstResponder(terminalContentView)
@@ -1216,31 +1213,28 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
     // MARK: - Completion Actions
 
     private func setupCompletionActions() {
-        sessionManager.onTaskCompleted = { [weak self] session, filesChanged, duration in
-            self?.showCompletionBar(session: session, filesChanged: filesChanged, duration: duration)
+        sessionManager.onTaskCompleted = { [weak self] session, context in
+            self?.showCompletionBar(session: session, context: context)
         }
     }
 
-    private func showCompletionBar(session: Session, filesChanged: [String], duration: TimeInterval) {
+    private func showCompletionBar(session: Session, context: CompletionActions.CompletionContext) {
         guard let containerView = window?.contentView else { return }
 
         // Remove existing bar
         completionBarHost?.removeFromSuperview()
 
-        let actions = CompletionActions.suggest(
-            filesChanged: filesChanged,
-            taskDuration: duration,
-            hasTestCommand: false // TODO: read from project config when available
-        )
+        let actions = CompletionActions.suggest(context: context)
 
         guard !actions.isEmpty else { return }
 
+        let summaryText = CompletionActions.summaryLine(context: context)
+
         let barView = CompletionSuggestionBar(
             actions: actions,
-            duration: duration,
-            filesCount: filesChanged.count,
+            summaryText: summaryText,
             onAction: { [weak self] actionId in
-                self?.handleCompletionAction(actionId, session: session, filesChanged: filesChanged)
+                self?.handleCompletionAction(actionId, session: session, filesChanged: context.filesChanged)
                 self?.dismissCompletionBar()
             },
             onDismiss: { [weak self] in
@@ -1657,6 +1651,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
     }
 
     // MARK: - NSWindowDelegate
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        // Reset the phantom scroll guard timer so the content view suppresses
+        // stale scroll events delivered by macOS right after window activation.
+        terminalContentView?.resetFocusGuard()
+    }
 
     func windowWillClose(_ notification: Notification) {
         saveState()

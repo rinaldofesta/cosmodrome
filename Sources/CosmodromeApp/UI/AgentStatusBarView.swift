@@ -15,7 +15,9 @@ struct AgentStatusBarView: View {
                     sessionName: entry.sessionName,
                     state: entry.state,
                     model: entry.model,
-                    branch: entry.branch
+                    branch: entry.branch,
+                    narrativeHeadline: entry.narrativeHeadline,
+                    isStuck: entry.isStuck
                 )
                 .onTapGesture {
                     onJumpToSession(entry.projectId, entry.sessionId)
@@ -64,18 +66,7 @@ struct AgentStatusBarView: View {
                 .font(Typo.body)
                 .foregroundColor(DS.textTertiary)
 
-            // Quick action buttons
-            Divider()
-                .frame(height: 14)
-                .opacity(0.3)
-
-            StatusBarButton(icon: "list.bullet.rectangle", label: "Activity Log", shortcut: "\u{2318}L") {
-                onToggleActivityLog()
-            }
-
-            StatusBarButton(icon: "square.grid.2x2", label: "Fleet Overview", shortcut: "\u{2318}\u{21E7}F") {
-                onToggleFleetView()
-            }
+            // Quick action buttons live in the sidebar toolbar — no duplication here
         }
         .padding(.horizontal, Spacing.md)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -91,6 +82,8 @@ struct AgentStatusBarView: View {
         let state: AgentState
         let model: String?
         let branch: String?
+        let narrativeHeadline: String?
+        let isStuck: Bool
     }
 
     private var agentEntries: [AgentInfo] {
@@ -105,7 +98,9 @@ struct AgentStatusBarView: View {
                         sessionName: session.name,
                         state: session.agentState,
                         model: session.agentModel,
-                        branch: session.gitBranch
+                        branch: session.gitBranch,
+                        narrativeHeadline: session.narrative?.headline,
+                        isStuck: session.stuckInfo != nil
                     )
                 }
         }
@@ -162,6 +157,8 @@ private struct AgentStatusEntry: View {
     let state: AgentState
     let model: String?
     let branch: String?
+    let narrativeHeadline: String?
+    let isStuck: Bool
 
     @State private var isHovered = false
 
@@ -169,7 +166,7 @@ private struct AgentStatusEntry: View {
         HStack(spacing: Spacing.xs) {
             Circle()
                 .fill(stateColor)
-                .frame(width: 6, height: 6)
+                .frame(width: 8, height: 8)
                 .shadow(color: stateColor.opacity(0.4), radius: 3)
 
             Text(statusText)
@@ -206,7 +203,12 @@ private struct AgentStatusEntry: View {
     }
 
     private var statusText: String {
-        var text = "\(projectName)/\(sessionName)"
+        let prefix = "\(projectName)/\(sessionName)"
+        // Prefer narrative headline when available — more informative than raw state
+        if let headline = narrativeHeadline {
+            return "\(prefix) — \(headline)"
+        }
+        var text = prefix
         if let model {
             text += " \(model)"
         }

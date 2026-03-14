@@ -26,21 +26,21 @@ public enum AgentPatterns {
             return [
                 AgentPattern(
                     state: .needsInput,
-                    regex: #"(?i)(Allow\s+\w+.*\?|Allow for this session|Always allow|Allow once|yes/no|\[y/n\]|\[Y/n\]|\(y\)|\(n\)|\(Y\)es|\(N\)o|Do you want to allow|Do you want to|permission|Press Enter to|approve this)"#,
+                    regex: #"(?i)(Allow\s+\w+.*\?|Allow for this session|Always allow|Allow once|yes/no|\[y/n\]|\[Y/n\]|\(y\)|\(n\)|\(Y\)es|\(N\)o|Do you want to allow|Press Enter to|approve this)"#,
                     lastLineOnly: false,
                     priority: 30
-                ),
-                AgentPattern(
-                    state: .error,
-                    regex: #"(?i)(error|failed|exception|panic|fatal)"#,
-                    lastLineOnly: false,
-                    priority: 20
                 ),
                 AgentPattern(
                     state: .working,
                     regex: #"[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏●]"#,
                     lastLineOnly: true,
-                    priority: 15
+                    priority: 25
+                ),
+                AgentPattern(
+                    state: .error,
+                    regex: #"(?:Error:|error:|ERROR[ :\n]|FAILED|fatal error|panic:|×\s)"#,
+                    lastLineOnly: false,
+                    priority: 20
                 ),
                 AgentPattern(
                     state: .working,
@@ -60,7 +60,7 @@ public enum AgentPatterns {
                 ),
                 AgentPattern(
                     state: .error,
-                    regex: #"(?i)(error|failed|traceback)"#,
+                    regex: #"(?i)(error:|Error |traceback|FAILED)"#,
                     lastLineOnly: false,
                     priority: 20
                 ),
@@ -81,16 +81,16 @@ public enum AgentPatterns {
                     priority: 30
                 ),
                 AgentPattern(
-                    state: .error,
-                    regex: #"(?i)(error|failed|exception|could not|unable to)"#,
-                    lastLineOnly: false,
-                    priority: 20
-                ),
-                AgentPattern(
                     state: .working,
                     regex: #"[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]"#,
                     lastLineOnly: true,
-                    priority: 15
+                    priority: 25
+                ),
+                AgentPattern(
+                    state: .error,
+                    regex: #"(?i)(error:|Error |ERROR|FAILED|could not|unable to)"#,
+                    lastLineOnly: false,
+                    priority: 20
                 ),
                 AgentPattern(
                     state: .working,
@@ -109,16 +109,16 @@ public enum AgentPatterns {
                     priority: 30
                 ),
                 AgentPattern(
-                    state: .error,
-                    regex: #"(?i)(error|failed|exception|fatal|rate.limit)"#,
-                    lastLineOnly: false,
-                    priority: 20
-                ),
-                AgentPattern(
                     state: .working,
                     regex: #"[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏●]"#,
                     lastLineOnly: true,
-                    priority: 15
+                    priority: 25
+                ),
+                AgentPattern(
+                    state: .error,
+                    regex: #"(?i)(error:|Error |ERROR|FAILED|fatal error|rate.limit)"#,
+                    lastLineOnly: false,
+                    priority: 20
                 ),
                 AgentPattern(
                     state: .working,
@@ -137,16 +137,16 @@ public enum AgentPatterns {
                     priority: 30
                 ),
                 AgentPattern(
-                    state: .error,
-                    regex: #"(?i)(error|failed|exception)"#,
-                    lastLineOnly: false,
-                    priority: 20
-                ),
-                AgentPattern(
                     state: .working,
                     regex: #"[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]"#,
                     lastLineOnly: true,
-                    priority: 10
+                    priority: 25
+                ),
+                AgentPattern(
+                    state: .error,
+                    regex: #"(?i)(error:|\bERROR\b|\bFAILED\b|exception:|panic:)"#,
+                    lastLineOnly: false,
+                    priority: 20
                 ),
             ]
         }

@@ -24,19 +24,25 @@ enum TimeFilter: CaseIterable {
 }
 
 enum EventFilter: CaseIterable {
-    case all, files, commands, errors
+    case smart, files, commands, errors, all
 
     var label: String {
         switch self {
-        case .all: return "All"
+        case .smart: return "Smart"
         case .files: return "Files"
         case .commands: return "Commands"
         case .errors: return "Errors"
+        case .all: return "All"
         }
     }
 
     func matches(_ kind: ActivityEvent.EventKind) -> Bool {
         switch self {
+        case .smart:
+            switch kind {
+            case .stateChanged, .modelChanged, .taskStarted: return false
+            default: return true
+            }
         case .all: return true
         case .files: return kind.category == .files
         case .commands: return kind.category == .commands
@@ -53,10 +59,11 @@ struct ActivityLogView: View {
     let projects: [Project]
     var compact: Bool = false
     var onFocusSession: (UUID, UUID) -> Void  // (projectId, sessionId)
+    var onExpand: (() -> Void)? = nil  // Compact → full-screen
     var onDismiss: () -> Void
 
     @State private var timeFilter: TimeFilter = .lastHour
-    @State private var eventFilter: EventFilter = .all
+    @State private var eventFilter: EventFilter = .smart
     @State private var expandedSessions: Set<UUID> = []
     @State private var initialExpandDone = false
 
@@ -133,6 +140,19 @@ struct ActivityLogView: View {
             Text("\(allFilteredEvents.count)")
                 .font(Typo.captionMono)
                 .foregroundColor(DS.textTertiary)
+
+            if let onExpand {
+                Button(action: onExpand) {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(DS.textSecondary)
+                        .frame(width: 18, height: 18)
+                        .background(DS.bgHover)
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .help("Expand to full screen  \u{2318}\u{21E7}L")
+            }
 
             Button(action: onDismiss) {
                 Image(systemName: "xmark")
@@ -478,6 +498,46 @@ private struct SessionEntry {
     let events: [ActivityEvent]
 }
 
+// MARK: - Display Item (collapsing consecutive state transitions)
+
+private struct DisplayItem: Identifiable {
+    let id: UUID
+    let content: Content
+
+    enum Content {
+        case event(ActivityEvent)
+        case collapsed(events: [ActivityEvent])
+    }
+
+    /// Convert a flat event list into display items, collapsing runs of 2+ stateChanged events.
+    static func from(_ events: [ActivityEvent]) -> [DisplayItem] {
+        var items: [DisplayItem] = []
+        var stateRun: [ActivityEvent] = []
+
+        func flushRun() {
+            if stateRun.count >= 2 {
+                items.append(DisplayItem(id: UUID(), content: .collapsed(events: stateRun)))
+            } else {
+                for e in stateRun {
+                    items.append(DisplayItem(id: UUID(), content: .event(e)))
+                }
+            }
+            stateRun.removeAll()
+        }
+
+        for event in events {
+            if case .stateChanged = event.kind {
+                stateRun.append(event)
+            } else {
+                flushRun()
+                items.append(DisplayItem(id: UUID(), content: .event(event)))
+            }
+        }
+        flushRun()
+        return items
+    }
+}
+
 // MARK: - Session Section
 
 private struct SessionSection: View {
@@ -489,6 +549,7 @@ private struct SessionSection: View {
     var onFocus: () -> Void
 
     @State private var isHovered = false
+    @State private var expandedCollapseIds: Set<UUID> = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -505,12 +566,30 @@ private struct SessionSection: View {
 
             // Event rows (when expanded)
             if isExpanded {
+                let limit = compact ? 20 : 100
+                let displayItems = DisplayItem.from(Array(entry.events.prefix(limit)))
+
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(entry.events.prefix(compact ? 20 : 100).enumerated()), id: \.offset) { _, event in
-                        ActivityEventRow(event: event, compact: compact)
+                    ForEach(displayItems) { item in
+                        switch item.content {
+                        case .event(let event):
+                            ActivityEventRow(event: event, compact: compact)
+                        case .collapsed(let events):
+                            CollapsedTransitionsRow(
+                                events: events,
+                                compact: compact,
+                                isExpanded: expandedCollapseIds.contains(item.id),
+                                onToggle: {
+                                    if expandedCollapseIds.contains(item.id) {
+                                        expandedCollapseIds.remove(item.id)
+                                    } else {
+                                        expandedCollapseIds.insert(item.id)
+                                    }
+                                }
+                            )
+                        }
                     }
 
-                    let limit = compact ? 20 : 100
                     if entry.events.count > limit {
                         Text("+ \(entry.events.count - limit) more")
                             .font(Typo.caption)
@@ -659,6 +738,56 @@ private struct SessionSection: View {
         default:
             return DS.borderSubtle
         }
+    }
+}
+
+// MARK: - Collapsed Transitions Row
+
+private struct CollapsedTransitionsRow: View {
+    let events: [ActivityEvent]
+    var compact: Bool = false
+    let isExpanded: Bool
+    var onToggle: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button(action: onToggle) {
+                HStack(spacing: compact ? 4 : Spacing.sm) {
+                    // Timestamp of first event
+                    Text(timeString(events.last?.timestamp ?? Date()))
+                        .font(Typo.captionMono)
+                        .foregroundColor(DS.textTertiary)
+                        .frame(width: compact ? 30 : 38, alignment: .trailing)
+
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 7))
+                        .foregroundColor(DS.textTertiary)
+                        .frame(width: compact ? 10 : 14)
+
+                    Text("\(events.count) state transitions")
+                        .font(compact ? Typo.caption : Typo.body)
+                        .foregroundColor(DS.textTertiary)
+
+                    Spacer()
+                }
+                .padding(.horizontal, compact ? Spacing.sm : Spacing.md)
+                .padding(.vertical, compact ? 2 : 3)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                ForEach(Array(events.enumerated()), id: \.offset) { _, event in
+                    ActivityEventRow(event: event, compact: compact)
+                }
+            }
+        }
+    }
+
+    private func timeString(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
     }
 }
 

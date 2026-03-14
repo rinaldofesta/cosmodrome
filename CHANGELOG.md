@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- **Session Narrative** -- heuristic-based narrative engine (`SessionNarrative`) replaces raw state labels with contextual descriptions. "Working" becomes "Editing auth module -- 8 files, 2m". "Error" becomes "Error: compile error in auth.ts". Zero LLM, zero latency, works offline.
+- **Stuck Detection** -- `StuckDetector` identifies error-retry loops (3+ cycles within 10 min). Session cards show "stuck" badge with retry count and duration instead of misleading "working" state.
+- **Event Grouping** -- `ActivityLog.groupEvents()` collapses related events into logical units: task blocks (taskStarted...taskCompleted), file clusters (3+ writes within 60s), state flicker (3+ rapid transitions).
+- **Buffer State Scanner** -- `BufferStateScanner` reads rendered terminal buffer cells for Claude Code TUI state detection. Immune to ANSI stripping issues. Confidence-based (high/medium/none).
+- **Consolidated Buffer Scanning** -- `runBufferScans()` reads the terminal buffer once per output event and runs all scans (status line, agent state, prompt detection, agent exit) against the shared snapshot. Eliminates 4 separate lock acquisitions per scan cycle.
+- **Richer Completion Actions** -- `CompletionActions` now accepts full `CompletionContext` (stats, events, narrative, stuck info). Summary line shows "Editing auth module. 15 files, tests passing, 5m, $4.20." instead of bare "Task completed (5m)". Test-aware suggestions: "Re-run tests (were failing)".
+- **Task completion notifications** -- macOS notification + attention badge fires when an agent transitions working -> inactive (task done), not just on needsInput/error.
+- **`agentSince` timeout** -- "Collecting status..." placeholder disappears after 10s even if status line parsing fails, showing minimal agent info instead.
+- **`readRowsAtBottom()` API** -- `TerminalBackend` protocol gains bulk row reading. Single yDisp snap/restore instead of per-cell mutations, preventing scroll jitter.
+
+### Fixed
+- **Mode badge always visible** -- permission mode badge (Plan/Accept Edits/Bypass/Auto) now shown for all non-Default modes. Previously hidden for "Accept Edits".
+- **Case-insensitive ctx detection** -- all `ctx:` regex patterns now use `(?i)` flag. Prevents silent detection failure if Claude Code changes casing.
+- **Git branch CWD resolution** -- sessions with `cwd: "."` now resolve to absolute path at spawn time. Previously all default sessions showed the app's CWD branch.
+- **Thread safety in AgentDetector** -- added NSLock protecting shared mutable state (`_pendingEvents`, `_state`, `hasHookData`, `lastHookEvent`, `previousState`) between I/O thread and main thread.
+- **BufferStateScanner spinner false positive** -- spinner pattern now requires line-start position, preventing status bar characters from being misdetected as working state.
+- **User font config loaded at startup** -- font family, size, and line height from `~/.config/cosmodrome/config.yml` are now properly applied (contributor: @thisloke).
+- **Cmd+Q app termination** -- Cmd+Q now passes through to AppKit menu system instead of being captured by keybinding handler (contributor: @cwmahan).
+- **Font size config precedence** -- explicit user config font size takes priority over saved state. Saved state only restores when config doesn't specify a size (contributor: @cwmahan).
+
 ### Removed
 - **`send_input` MCP tool** -- removed to align with "observe, never orchestrate" philosophy. Cosmodrome no longer writes to agent PTYs.
 - **`cosmoctl send` CLI command** -- removed for the same reason.

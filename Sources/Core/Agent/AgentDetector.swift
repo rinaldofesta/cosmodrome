@@ -3,7 +3,19 @@ import Foundation
 /// Detects AI agent state from terminal output. Runs inline on I/O thread.
 /// Also handles model detection and activity event extraction.
 public final class AgentDetector {
-    public private(set) var state: AgentState = .inactive
+    /// Enable debug logging to stderr via COSMODROME_DEBUG_STATE=1 environment variable.
+    public static let debugEnabled = ProcessInfo.processInfo.environment["COSMODROME_DEBUG_STATE"] != nil
+
+    private var _state: AgentState = .inactive
+
+    /// Thread-safe read of the current agent state.
+    public var state: AgentState {
+        lock.lock()
+        let s = _state
+        lock.unlock()
+        return s
+    }
+
     private var previousState: AgentState = .inactive
     private var lastChange = Date.distantPast
     private let debounce: TimeInterval
@@ -16,6 +28,10 @@ public final class AgentDetector {
     private var hasHookData = false
     private var lastHookEvent = Date.distantPast
     private let hookTimeout: TimeInterval = 30
+
+    // Synchronization: protects mutable state accessed from both I/O thread (analyzeText)
+    // and main thread (consumeEvents, ingestHookEvent).
+    private let lock = NSLock()
 
     // Subagent tracking
     private var activeSubagent: String?
@@ -63,6 +79,9 @@ public final class AgentDetector {
         // Raw PTY output contains codes like \e[1;33mAllow\e[0m that break patterns.
         let cleanText = Self.stripANSI(text)
 
+        lock.lock()
+        defer { lock.unlock() }
+
         // 1. State detection
         detectState(cleanText)
 
@@ -74,18 +93,18 @@ public final class AgentDetector {
         extractEvents(from: cleanText)
 
         // 4. State transition events
-        if state != previousState {
+        if _state != previousState {
             let now = Date()
 
             _pendingEvents.append(ActivityEvent(
                 timestamp: now, sessionId: sessionId, sessionName: sessionName,
-                kind: .stateChanged(from: previousState, to: state)
+                kind: .stateChanged(from: previousState, to: _state)
             ))
 
             // Update stats on state transitions
-            stats?.recordStateTransition(from: previousState, to: state)
+            stats?.recordStateTransition(from: previousState, to: _state)
 
-            if state == .working && previousState != .working {
+            if _state == .working && previousState != .working {
                 _pendingEvents.append(ActivityEvent(
                     timestamp: now, sessionId: sessionId, sessionName: sessionName,
                     kind: .taskStarted
@@ -102,44 +121,54 @@ public final class AgentDetector {
                 }
             }
 
-            previousState = state
+            previousState = _state
         }
     }
 
     /// Consume all pending events. Called from the onOutput callback after analyze().
     public func consumeEvents() -> [ActivityEvent] {
+        lock.lock()
         let events = _pendingEvents
         _pendingEvents = []
+        lock.unlock()
         return events
     }
 
     /// Whether the last analyze() caused a transition from .working to non-working.
     public var didCompleteTask: Bool {
-        previousState != .working && state != .working
+        lock.lock()
+        let result = previousState != .working && _state != .working
+        lock.unlock()
+        return result
     }
 
     /// The state before the most recent change.
     public var lastPreviousState: AgentState {
-        previousState
+        lock.lock()
+        let s = previousState
+        lock.unlock()
+        return s
     }
 
     /// Ingest a structured hook event (from CosmodromeHook via HookServer).
     /// Hook events are authoritative — once received, they suppress regex state detection.
     public func ingestHookEvent(_ event: HookEvent) {
-        hasHookData = true
+        lock.lock()
+        defer { lock.unlock() }
 
+        hasHookData = true
         lastHookEvent = Date()
 
         // Map hook events to agent state
         switch event.hookName {
         case "PreToolUse":
-            if state != .working {
+            if _state != .working {
                 stats?.recordTaskStarted()
             }
-            state = .working
+            _state = .working
             lastChange = Date()
         case "Stop":
-            state = .inactive
+            _state = .inactive
             lastChange = Date()
         default:
             break
@@ -168,13 +197,15 @@ public final class AgentDetector {
 
     /// Reset the detector state.
     public func reset() {
-        state = .inactive
+        lock.lock()
+        _state = .inactive
         previousState = .inactive
         lastChange = Date.distantPast
         hasHookData = false
         activeSubagent = nil
         subagentStartedAt = nil
         _pendingEvents = []
+        lock.unlock()
         modelDetector.reset()
     }
 
@@ -202,22 +233,50 @@ public final class AgentDetector {
 
         var detected: AgentState?
 
-        // Check patterns in priority order (highest first)
-        for pattern in patterns.sorted(by: { $0.priority > $1.priority }) {
-            // When hooks are active, only run patterns for states hooks can't detect.
-            // Hooks handle .working and .inactive authoritatively, but have no event
-            // for .needsInput or .error — regex must still detect those.
+        // Two-phase detection:
+        // Phase 1 — lastLineOnly patterns first. These reflect what's actively
+        // displayed on the terminal status/prompt line and represent the current
+        // state. If a spinner is on the last line, the agent IS working regardless
+        // of what text appears in the body (e.g. "error" in code output).
+        let lastLinePatterns = patterns.filter { $0.lastLineOnly }
+            .sorted(by: { $0.priority > $1.priority })
+        for pattern in lastLinePatterns {
             if hookActive && pattern.state != .needsInput && pattern.state != .error {
                 continue
             }
-            let searchText = pattern.lastLineOnly ? lastLine : lastLines.joined(separator: "\n")
-            if searchText.range(of: pattern.regex, options: .regularExpression) != nil {
+            if lastLine.range(of: pattern.regex, options: .regularExpression) != nil {
                 detected = pattern.state
                 break
             }
         }
 
-        guard let newState = detected, newState != state else { return }
+        // Phase 2 — body patterns, only if the last line didn't indicate state.
+        // These scan the last 20 lines for permission prompts, errors, tool use, etc.
+        if detected == nil {
+            let bodyText = lastLines.joined(separator: "\n")
+            let bodyPatterns = patterns.filter { !$0.lastLineOnly }
+                .sorted(by: { $0.priority > $1.priority })
+            for pattern in bodyPatterns {
+                if hookActive && pattern.state != .needsInput && pattern.state != .error {
+                    continue
+                }
+                if bodyText.range(of: pattern.regex, options: .regularExpression) != nil {
+                    detected = pattern.state
+                    break
+                }
+            }
+        }
+
+        if Self.debugEnabled {
+            let lastLinePreview = String(lastLine.prefix(80))
+            let matchInfo = detected.map { "\($0.rawValue)" } ?? "none"
+            FileHandle.standardError.write(
+                "[AgentDetector] lines=\(lines.count) lastLine=\"\(lastLinePreview)\" detected=\(matchInfo) hookActive=\(hookActive) current=\(_state.rawValue)\n"
+                    .data(using: .utf8)!
+            )
+        }
+
+        guard let newState = detected, newState != _state else { return }
 
         let now = Date()
         // Skip debounce for needsInput — permission prompts are time-sensitive
@@ -226,7 +285,14 @@ public final class AgentDetector {
             guard now.timeIntervalSince(lastChange) >= debounce else { return }
         }
 
-        state = newState
+        if Self.debugEnabled {
+            FileHandle.standardError.write(
+                "[AgentDetector] STATE CHANGE: \(_state.rawValue) → \(newState.rawValue)\n"
+                    .data(using: .utf8)!
+            )
+        }
+
+        _state = newState
         lastChange = now
     }
 
@@ -355,10 +421,12 @@ public final class AgentDetector {
         return false
     }
 
-    /// Strip ANSI escape sequences (CSI, OSC, charset designators) from text.
+    /// Strip ANSI escape sequences (CSI, OSC, charset designators) and carriage returns from text.
+    /// The `\r` removal is critical for TUI apps (like Claude Code) that use carriage returns
+    /// to overwrite lines in place — leaving them corrupts `\n`-based line splitting.
     static func stripANSI(_ text: String) -> String {
         text.replacingOccurrences(
-            of: #"\x1B\[[0-9;]*[a-zA-Z]|\x1B\][^\x07\x1B]*(?:\x07|\x1B\\)|\x1B[()][012AB]|\x1B[>=]"#,
+            of: #"\x1B\[[0-9;]*[a-zA-Z]|\x1B\][^\x07\x1B]*(?:\x07|\x1B\\)|\x1B[()][012AB]|\x1B[>=]|\r"#,
             with: "",
             options: .regularExpression
         )

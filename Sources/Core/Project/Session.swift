@@ -34,6 +34,11 @@ public final class Session: Identifiable {
     @ObservationIgnored public var lastNotification: TerminalNotification?
     public var detectedPorts: [UInt16] = []
     public var gitBranch: String?
+    @ObservationIgnored public var agentSince: Date?
+
+    // Narrative summary (updated periodically by SessionManager)
+    public var narrative: SessionNarrative.Summary?
+    @ObservationIgnored public var stuckInfo: StuckDetector.StuckInfo?
 
     // Usage stats (accumulated from activity events)
     @ObservationIgnored public let stats = SessionStats()

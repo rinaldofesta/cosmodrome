@@ -5,8 +5,7 @@ import SwiftUI
 /// completes a task. Auto-dismisses after 30 seconds. Never blocks input.
 struct CompletionSuggestionBar: View {
     let actions: [CompletionActions.Action]
-    let duration: TimeInterval
-    let filesCount: Int
+    let summaryText: String
     var onAction: (String) -> Void
     var onDismiss: () -> Void
 
@@ -24,6 +23,7 @@ struct CompletionSuggestionBar: View {
                     Text(summaryText)
                         .font(Typo.bodyMedium)
                         .foregroundColor(DS.textPrimary)
+                        .lineLimit(1)
                 }
 
                 Spacer()
@@ -86,22 +86,5 @@ struct CompletionSuggestionBar: View {
                 }
             }
         }
-    }
-
-    private var summaryText: String {
-        let durationStr = formatDuration(duration)
-        if filesCount > 0 {
-            return "Task completed (\(durationStr), \(filesCount) files)"
-        }
-        return "Task completed (\(durationStr))"
-    }
-
-    private func formatDuration(_ seconds: TimeInterval) -> String {
-        let mins = Int(seconds) / 60
-        let secs = Int(seconds) % 60
-        if mins > 0 {
-            return "\(mins)m \(secs)s"
-        }
-        return "\(secs)s"
     }
 }
