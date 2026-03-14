@@ -28,11 +28,16 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
         let backend: TerminalBackend
         let viewport: MTLViewport
         let scissor: MTLScissorRect
+        var isFocused: Bool = true
     }
     var visibleSessions: [SessionRenderEntry] = []
 
     // Text selection (set by content view)
     var selection: TerminalSelection?
+
+    // Cursor blink opacity (set by content view's smooth blink timer)
+    // Focused sessions use this animated value; unfocused sessions show a static dim cursor.
+    var cursorOpacity: Float = 1.0
 
     // Theme colors (mutable for theme switching)
     private(set) var theme: ResolvedTheme
@@ -324,13 +329,21 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
                     cursorYOffset = cellH - max(2, cellH * 0.1)
                 }
 
+                // Cursor opacity: focused sessions get smooth blink, unfocused get static dim
+                let alpha: Float
+                if entry.isFocused {
+                    alpha = cursorOpacity  // Animated smooth blink (0.3..1.0)
+                } else {
+                    alpha = 0.30           // Static dim cursor for unfocused sessions
+                }
+
                 let idx = cursorBase + cursorCount
                 if idx + 6 <= maxVertices {
                     addQuad(
                         ptr: vertexPtr, at: idx,
                         x: cursorX, y: cursorY + cursorYOffset, w: cursorW, h: cursorH,
                         u0: 0, v0: 0, u1: 0, v1: 0,
-                        color: SIMD4<Float>(theme.cursor.x, theme.cursor.y, theme.cursor.z, 0.85)
+                        color: SIMD4<Float>(theme.cursor.x, theme.cursor.y, theme.cursor.z, alpha)
                     )
                     cursorCount += 6
                 }

@@ -2,7 +2,7 @@ name: "Dark"
 
 colors:
   foreground: "#D9D9D9"
-  background: "#1A1A1F"
+  background: "#1A1A1C"
   cursor: "#D9D9D9"
   selection: "#3A3A4A"
 

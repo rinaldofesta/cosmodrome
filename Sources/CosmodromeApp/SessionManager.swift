@@ -208,6 +208,9 @@ final class SessionManager {
 
                         // Handle state transitions (use finalState which includes buffer overrides)
                         if finalState != oldState {
+                            session.hasUnreadStateChange = true
+                            session.stateChangedAt = Date()
+
                             // Starting a new task
                             if finalState == .working && oldState != .working {
                                 session.taskStartedAt = Date()
@@ -603,6 +606,8 @@ final class SessionManager {
                         }
 
                         if finalState != oldState {
+                            session.hasUnreadStateChange = true
+
                             if finalState == .working && oldState != .working {
                                 session.taskStartedAt = Date()
                                 session.filesChangedInTask = []
@@ -893,13 +898,15 @@ final class SessionManager {
         let stuckInfo = StuckDetector.detect(events: events, currentState: session.agentState)
         session.stuckInfo = stuckInfo
 
-        // Generate narrative
+        // Generate narrative (with stateEnteredAt for urgency duration escalation)
         let summary = SessionNarrative.summarize(
             state: session.agentState,
             events: events,
             stats: session.stats,
             taskStartedAt: session.taskStartedAt,
-            stuckInfo: stuckInfo
+            stuckInfo: stuckInfo,
+            promptContext: session.promptContext,
+            stateEnteredAt: session.stateChangedAt ?? session.agentSince
         )
         session.narrative = summary
     }
@@ -939,6 +946,33 @@ final class SessionManager {
             }
         }
         return false
+    }
+
+    /// Extract context text around the matched prompt pattern.
+    /// Returns the line containing the match plus up to 1 preceding non-empty line for context.
+    static func extractPromptContext(from rowStrings: [String]) -> String? {
+        let scanEnd = max(0, rowStrings.count - 3)
+        let contentRows = Array(rowStrings.prefix(scanEnd))
+
+        for (idx, row) in contentRows.enumerated() {
+            let trimmed = row.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { continue }
+            for pattern in promptPatterns {
+                if trimmed.range(of: pattern, options: .regularExpression) != nil {
+                    // Include the preceding non-empty line for extra context
+                    var contextParts: [String] = []
+                    if idx > 0 {
+                        let prev = contentRows[idx - 1].trimmingCharacters(in: .whitespaces)
+                        if !prev.isEmpty { contextParts.append(prev) }
+                    }
+                    contextParts.append(trimmed)
+                    let result = contextParts.joined(separator: " ")
+                    // Trim to reasonable length
+                    return String(result.prefix(120))
+                }
+            }
+        }
+        return nil
     }
 
     /// Check the terminal buffer for input prompts (throttled at 300ms).
@@ -1068,6 +1102,9 @@ final class SessionManager {
         let promptDetected = Self.scanForInputPrompt(from: rows)
 
         if promptDetected {
+            // Extract what the agent is asking about
+            session.promptContext = Self.extractPromptContext(from: rows)
+
             if session.agentState != .needsInput {
                 session.agentState = .needsInput
                 session.hasUnreadNotification = true
@@ -1076,6 +1113,7 @@ final class SessionManager {
                 }
             }
         } else if session.agentState == .needsInput {
+            session.promptContext = nil
             stateLock.lock()
             let detector = detectors[session.id]
             stateLock.unlock()

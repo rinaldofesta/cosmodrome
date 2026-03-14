@@ -31,14 +31,19 @@ public final class Session: Identifiable {
     @ObservationIgnored public var taskStartedAt: Date?
     @ObservationIgnored public var filesChangedInTask: [String] = []
     public var hasUnreadNotification: Bool = false
+    public var hasUnreadStateChange: Bool = false
     @ObservationIgnored public var lastNotification: TerminalNotification?
     public var detectedPorts: [UInt16] = []
     public var gitBranch: String?
     @ObservationIgnored public var agentSince: Date?
+    /// When the current agentState was entered (for urgency duration calculation).
+    @ObservationIgnored public var stateChangedAt: Date?
 
     // Narrative summary (updated periodically by SessionManager)
     public var narrative: SessionNarrative.Summary?
     @ObservationIgnored public var stuckInfo: StuckDetector.StuckInfo?
+    /// Extracted text of what the agent is asking (set when state is needsInput).
+    @ObservationIgnored public var promptContext: String?
 
     // Usage stats (accumulated from activity events)
     @ObservationIgnored public let stats = SessionStats()

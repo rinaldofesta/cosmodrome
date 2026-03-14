@@ -152,6 +152,8 @@ final class GlyphAtlas {
         ctx.setAllowsFontSmoothing(false) // Subpixel AA requires RGBA; OFF for grayscale
         ctx.setAllowsFontSubpixelPositioning(true)
         ctx.setShouldSubpixelPositionFonts(true)
+        ctx.setAllowsFontSubpixelQuantization(true)
+        ctx.setShouldSubpixelQuantizeFonts(true)
         ctx.setFillColor(gray: 1.0, alpha: 1.0)
 
         // Translate by fractional part + padding to bake sub-pixel position into bitmap.

@@ -10,6 +10,8 @@ window:
   restore_state: true
 
 notifications:
-  agent_needs_input: true
-  agent_error: true
-  process_exited: false
+  needs_input: true
+  error: true
+  completed: false
+  sound: false
+  idle_threshold: 30

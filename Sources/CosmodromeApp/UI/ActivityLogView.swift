@@ -51,6 +51,17 @@ enum EventFilter: CaseIterable {
     }
 }
 
+// MARK: - "While You Were Away" Summary
+
+private struct AwaySummary {
+    let awayDuration: TimeInterval
+    let tasksCompleted: Int
+    let filesChanged: Int
+    let needsInputCount: Int
+    let errorsCount: Int
+    let firstAwayEventDate: Date?
+}
+
 // MARK: - Main View
 
 /// Activity log view showing what all agents did, grouped by session, with filtering and summary.
@@ -59,13 +70,18 @@ struct ActivityLogView: View {
     let projects: [Project]
     var compact: Bool = false
     var onFocusSession: (UUID, UUID) -> Void  // (projectId, sessionId)
-    var onExpand: (() -> Void)? = nil  // Compact → full-screen
+    var onExpand: (() -> Void)? = nil  // Compact -> full-screen
     var onDismiss: () -> Void
 
     @State private var timeFilter: TimeFilter = .lastHour
-    @State private var eventFilter: EventFilter = .smart
+    @State private var eventFilter: EventFilter = .smart  // Default to Smart filter
     @State private var expandedSessions: Set<UUID> = []
     @State private var initialExpandDone = false
+
+    // "While you were away" state
+    @State private var lastInteractionTime: Date = Date()
+    @State private var showAwayBanner = false
+    @State private var awaySummary: AwaySummary? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -95,6 +111,13 @@ struct ActivityLogView: View {
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: compact ? 2 : Spacing.sm) {
+                        // "While you were away" banner
+                        if showAwayBanner, let summary = awaySummary {
+                            awayBanner(summary: summary)
+                                .padding(.bottom, Spacing.sm)
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                        }
+
                         ForEach(sessionEntries, id: \.sessionId) { entry in
                             SessionSection(
                                 entry: entry,
@@ -121,7 +144,143 @@ struct ActivityLogView: View {
                 expandedSessions = Set(sessionEntries.prefix(compact ? 3 : 5).map(\.sessionId))
                 initialExpandDone = true
             }
+            checkAwayStatus()
         }
+        .simultaneousGesture(
+            TapGesture().onEnded { _ in
+                lastInteractionTime = Date()
+            }
+        )
+    }
+
+    // MARK: - Away Banner
+
+    private func checkAwayStatus() {
+        let now = Date()
+        let awayDuration = now.timeIntervalSince(lastInteractionTime)
+        guard awayDuration > 300 else { return }  // 5 minutes
+
+        let awayStart = lastInteractionTime
+        let cutoff = timeFilter.cutoff
+        let effectiveStart = max(awayStart, cutoff)
+
+        var tasks = 0
+        var files = Set<String>()
+        var needsInput = 0
+        var errors = 0
+        var firstDate: Date? = nil
+
+        for project in projects {
+            let awayEvents = project.activityLog.events.filter {
+                $0.timestamp > effectiveStart && $0.timestamp <= now
+            }
+            for event in awayEvents {
+                if firstDate == nil || event.timestamp < firstDate! {
+                    firstDate = event.timestamp
+                }
+                switch event.kind {
+                case .taskCompleted: tasks += 1
+                case .fileWrite(let path, _, _): files.insert(path)
+                case .error: errors += 1
+                default: break
+                }
+            }
+            // Check current session states for needsInput
+            for session in project.sessions where session.isAgent {
+                if session.agentState == .needsInput { needsInput += 1 }
+            }
+        }
+
+        guard tasks > 0 || !files.isEmpty || needsInput > 0 || errors > 0 else { return }
+
+        awaySummary = AwaySummary(
+            awayDuration: awayDuration,
+            tasksCompleted: tasks,
+            filesChanged: files.count,
+            needsInputCount: needsInput,
+            errorsCount: errors,
+            firstAwayEventDate: firstDate
+        )
+        withAnimation(Anim.normal) {
+            showAwayBanner = true
+        }
+    }
+
+    private func awayBanner(summary: AwaySummary) -> some View {
+        let minutes = Int(summary.awayDuration / 60)
+        return VStack(alignment: .leading, spacing: Spacing.sm) {
+            Text("While you were away (\(minutes) minutes):")
+                .font(Typo.bodyMedium)
+                .foregroundColor(DS.textPrimary)
+
+            HStack(spacing: Spacing.lg) {
+                if summary.tasksCompleted > 0 {
+                    HStack(spacing: Spacing.xs) {
+                        Text("\u{2713}")
+                            .foregroundColor(DS.stateWorking)
+                        Text("\(summary.tasksCompleted) \(summary.tasksCompleted == 1 ? "task" : "tasks") completed")
+                            .font(Typo.body)
+                            .foregroundColor(DS.textSecondary)
+                    }
+                }
+                if summary.filesChanged > 0 {
+                    HStack(spacing: Spacing.xs) {
+                        Image(systemName: "doc.fill")
+                            .font(.system(size: 9))
+                            .foregroundColor(DS.brand)
+                        Text("\(summary.filesChanged) \(summary.filesChanged == 1 ? "file" : "files") changed")
+                            .font(Typo.body)
+                            .foregroundColor(DS.textSecondary)
+                    }
+                }
+                if summary.needsInputCount > 0 {
+                    HStack(spacing: Spacing.xs) {
+                        Text("\u{26A0}\u{FE0F}")
+                        Text("\(summary.needsInputCount) \(summary.needsInputCount == 1 ? "agent needs" : "agents need") your input")
+                            .font(Typo.body)
+                            .foregroundColor(DS.stateNeedsInput)
+                    }
+                }
+                if summary.errorsCount > 0 {
+                    HStack(spacing: Spacing.xs) {
+                        Text("\u{274C}")
+                        Text("\(summary.errorsCount) \(summary.errorsCount == 1 ? "error" : "errors")")
+                            .font(Typo.body)
+                            .foregroundColor(DS.stateError)
+                    }
+                }
+            }
+
+            HStack {
+                Spacer()
+                Button(action: {
+                    withAnimation(Anim.normal) {
+                        showAwayBanner = false
+                    }
+                    lastInteractionTime = Date()
+                }) {
+                    Text("Dismiss")
+                        .font(Typo.bodyMedium)
+                        .foregroundColor(DS.textSecondary)
+                        .padding(.horizontal, Spacing.sm)
+                        .padding(.vertical, Spacing.xs)
+                        .background(
+                            RoundedRectangle(cornerRadius: Radius.md)
+                                .fill(DS.bgHover)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(Spacing.md)
+        .background(
+            RoundedRectangle(cornerRadius: Radius.lg)
+                .fill(DS.bgSurface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Radius.lg)
+                .stroke(DS.borderMedium, lineWidth: 0.5)
+        )
     }
 
     // MARK: - Compact Header
@@ -256,7 +415,7 @@ struct ActivityLogView: View {
                 icon: "doc.fill",
                 value: "\(summary.filesChanged)",
                 label: "files changed",
-                color: .orange
+                color: DS.brand
             )
             summaryStat(
                 icon: "exclamationmark.triangle.fill",
@@ -507,12 +666,18 @@ private struct DisplayItem: Identifiable {
     enum Content {
         case event(ActivityEvent)
         case collapsed(events: [ActivityEvent])
+        case minuteHeader(date: Date)
     }
 
-    /// Convert a flat event list into display items, collapsing runs of 2+ stateChanged events.
+    /// Convert a flat event list into display items, collapsing runs of 2+ stateChanged events
+    /// and inserting minute-group headers.
     static func from(_ events: [ActivityEvent]) -> [DisplayItem] {
         var items: [DisplayItem] = []
         var stateRun: [ActivityEvent] = []
+        var lastMinuteKey: String? = nil
+
+        let minuteFormatter = DateFormatter()
+        minuteFormatter.dateFormat = "HH:mm"
 
         func flushRun() {
             if stateRun.count >= 2 {
@@ -526,6 +691,14 @@ private struct DisplayItem: Identifiable {
         }
 
         for event in events {
+            // Insert minute header when minute changes
+            let minuteKey = minuteFormatter.string(from: event.timestamp)
+            if minuteKey != lastMinuteKey {
+                flushRun()
+                items.append(DisplayItem(id: UUID(), content: .minuteHeader(date: event.timestamp)))
+                lastMinuteKey = minuteKey
+            }
+
             if case .stateChanged = event.kind {
                 stateRun.append(event)
             } else {
@@ -580,13 +753,17 @@ private struct SessionSection: View {
                                 compact: compact,
                                 isExpanded: expandedCollapseIds.contains(item.id),
                                 onToggle: {
-                                    if expandedCollapseIds.contains(item.id) {
-                                        expandedCollapseIds.remove(item.id)
-                                    } else {
-                                        expandedCollapseIds.insert(item.id)
+                                    withAnimation(Anim.quick) {
+                                        if expandedCollapseIds.contains(item.id) {
+                                            expandedCollapseIds.remove(item.id)
+                                        } else {
+                                            expandedCollapseIds.insert(item.id)
+                                        }
                                     }
                                 }
                             )
+                        case .minuteHeader(let date):
+                            MinuteHeaderRow(date: date, compact: compact)
                         }
                     }
 
@@ -621,7 +798,7 @@ private struct SessionSection: View {
 
             Circle()
                 .fill(DS.stateColor(for: entry.agentState))
-                .frame(width: 6, height: 6)
+                .frame(width: 8, height: 8)
 
             Text(entry.sessionName)
                 .font(Typo.bodyMedium)
@@ -647,14 +824,14 @@ private struct SessionSection: View {
                 .foregroundColor(DS.textTertiary)
                 .frame(width: 12)
 
-            // State dot
+            // State dot (8px)
             Circle()
                 .fill(DS.stateColor(for: entry.agentState))
-                .frame(width: 7, height: 7)
+                .frame(width: 8, height: 8)
 
             // Session name
             Text(entry.sessionName)
-                .font(Typo.subheadingMedium)
+                .font(Typo.bodyMedium)
                 .foregroundColor(DS.textPrimary)
                 .lineLimit(1)
 
@@ -667,12 +844,12 @@ private struct SessionSection: View {
             if let type = entry.agentType {
                 Text(type.capitalized)
                     .font(Typo.footnote)
-                    .foregroundColor(DS.textTertiary)
+                    .foregroundColor(DS.textSecondary)
             }
             if let model = entry.model {
                 Text(model)
                     .font(Typo.captionMono)
-                    .foregroundColor(DS.textTertiary)
+                    .foregroundColor(DS.textSecondary)
             }
 
             Spacer()
@@ -691,9 +868,10 @@ private struct SessionSection: View {
                     Text("\(entry.fileCount)")
                         .font(Typo.captionMono)
                 }
-                .foregroundColor(.orange.opacity(0.7))
+                .foregroundColor(DS.brand.opacity(0.7))
             }
 
+            // Event count badge
             Text("\(entry.events.count) events")
                 .font(Typo.captionMono)
                 .foregroundColor(DS.textTertiary)
@@ -741,6 +919,35 @@ private struct SessionSection: View {
     }
 }
 
+// MARK: - Minute Header Row
+
+private struct MinuteHeaderRow: View {
+    let date: Date
+    var compact: Bool = false
+
+    var body: some View {
+        HStack(spacing: Spacing.xs) {
+            Text(timeString)
+                .font(Typo.captionMono)
+                .foregroundColor(DS.textTertiary)
+
+            // Subtle divider line
+            Rectangle()
+                .fill(DS.borderSubtle)
+                .frame(height: 0.5)
+        }
+        .padding(.horizontal, compact ? Spacing.sm : Spacing.md)
+        .padding(.top, compact ? Spacing.xs : Spacing.sm)
+        .padding(.bottom, compact ? 1 : 2)
+    }
+
+    private var timeString: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
+    }
+}
+
 // MARK: - Collapsed Transitions Row
 
 private struct CollapsedTransitionsRow: View {
@@ -753,20 +960,39 @@ private struct CollapsedTransitionsRow: View {
         VStack(alignment: .leading, spacing: 0) {
             Button(action: onToggle) {
                 HStack(spacing: compact ? 4 : Spacing.sm) {
-                    // Timestamp of first event
-                    Text(timeString(events.last?.timestamp ?? Date()))
+                    // Time range
+                    Text(timeRange)
                         .font(Typo.captionMono)
                         .foregroundColor(DS.textTertiary)
-                        .frame(width: compact ? 30 : 38, alignment: .trailing)
+                        .frame(minWidth: compact ? 30 : 60, alignment: .trailing)
 
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                         .font(.system(size: 7))
                         .foregroundColor(DS.textTertiary)
                         .frame(width: compact ? 10 : 14)
 
-                    Text("\(events.count) state transitions")
-                        .font(compact ? Typo.caption : Typo.body)
-                        .foregroundColor(DS.textTertiary)
+                    // Recycle icon + count + dominant pattern
+                    HStack(spacing: Spacing.xs) {
+                        Text("\u{21BB}")
+                            .font(.system(size: compact ? 9 : 10))
+                            .foregroundColor(DS.textTertiary)
+
+                        Text("\(events.count) state transitions")
+                            .font(compact ? Typo.caption : Typo.body)
+                            .foregroundColor(DS.textTertiary)
+
+                        if let pattern = dominantPattern {
+                            Text("(\(pattern))")
+                                .font(compact ? Typo.caption : Typo.body)
+                                .foregroundColor(DS.textTertiary)
+                        }
+                    }
+
+                    if !isExpanded {
+                        Text("[tap to expand]")
+                            .font(Typo.caption)
+                            .foregroundColor(DS.textTertiary.opacity(0.6))
+                    }
 
                     Spacer()
                 }
@@ -780,14 +1006,40 @@ private struct CollapsedTransitionsRow: View {
                 ForEach(Array(events.enumerated()), id: \.offset) { _, event in
                     ActivityEventRow(event: event, compact: compact)
                 }
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
     }
 
-    private func timeString(_ date: Date) -> String {
+    /// Time range string showing first..last timestamp (e.g., "16:57-16:58")
+    private var timeRange: String {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm"
-        return formatter.string(from: date)
+        // Events are sorted newest-first, so last = earliest, first = latest
+        let earliest = events.last?.timestamp ?? Date()
+        let latest = events.first?.timestamp ?? Date()
+        let startStr = formatter.string(from: earliest)
+        let endStr = formatter.string(from: latest)
+        if startStr == endStr {
+            return startStr
+        }
+        return "\(startStr)-\(endStr)"
+    }
+
+    /// Detect the dominant transition pattern, e.g. "error <-> needsInput"
+    private var dominantPattern: String? {
+        var pairCounts: [String: Int] = [:]
+        for event in events {
+            if case .stateChanged(let from, let to) = event.kind {
+                // Normalize the pair so A<->B and B<->A are the same
+                let pair = [from.rawValue, to.rawValue].sorted().joined(separator: " \u{2194} ")
+                pairCounts[pair, default: 0] += 1
+            }
+        }
+        guard let topPair = pairCounts.max(by: { $0.value < $1.value }) else { return nil }
+        // Only show if it represents a significant portion
+        guard topPair.value >= events.count / 2 else { return nil }
+        return topPair.key
     }
 }
 
@@ -801,22 +1053,15 @@ private struct ActivityEventRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: compact ? 4 : Spacing.sm) {
-            // Timestamp
-            Text(timeString)
-                .font(Typo.captionMono)
-                .foregroundColor(DS.textTertiary)
-                .frame(width: compact ? 30 : 38, alignment: .trailing)
-
             // Icon
-            Image(systemName: iconName)
-                .font(.system(size: compact ? 8 : 9))
-                .foregroundColor(iconColor)
-                .frame(width: compact ? 10 : 14)
+            Text(iconEmoji)
+                .font(.system(size: compact ? 8 : 10))
+                .frame(width: compact ? 14 : 18, alignment: .center)
 
             // Description
             Text(description)
                 .font(compact ? Typo.caption : Typo.body)
-                .foregroundColor(DS.textPrimary.opacity(0.85))
+                .foregroundColor(descriptionColor)
                 .lineLimit(compact ? 1 : 2)
 
             Spacer()
@@ -831,41 +1076,35 @@ private struct ActivityEventRow: View {
         .onHover { isHovered = $0 }
     }
 
-    private var timeString: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
-        return formatter.string(from: event.timestamp)
-    }
-
-    private var iconName: String {
+    /// Emoji-based icons for consistent scanability
+    private var iconEmoji: String {
         switch event.kind {
-        case .taskStarted: return "play.fill"
-        case .taskCompleted: return "checkmark.circle.fill"
-        case .fileRead: return "doc"
-        case .fileWrite: return "doc.fill"
-        case .commandRun: return "terminal"
-        case .error: return "exclamationmark.triangle.fill"
-        case .modelChanged: return "cpu"
-        case .stateChanged: return "arrow.right"
-        case .subagentStarted: return "arrow.triangle.branch"
-        case .subagentCompleted: return "checkmark.diamond"
-        case .commandCompleted: return "terminal.fill"
+        case .taskStarted: return "\u{25B6}"       // Black right-pointing triangle
+        case .taskCompleted: return "\u{2713}"      // Check mark
+        case .fileRead: return "\u{1F4D6}"          // Open book
+        case .fileWrite: return "\u{1F4C1}"         // File folder
+        case .commandRun: return "\u{26A1}"         // High voltage
+        case .commandCompleted: return "\u{26A1}"   // High voltage
+        case .error: return "\u{274C}"              // Cross mark
+        case .modelChanged: return "\u{1F4BB}"      // Laptop
+        case .stateChanged: return "\u{21BB}"       // Clockwise arrows
+        case .subagentStarted: return "\u{1F50D}"   // Magnifying glass
+        case .subagentCompleted: return "\u{2713}"  // Check mark
         }
     }
 
-    private var iconColor: Color {
+    /// Color for the description text matching icon semantics
+    private var descriptionColor: Color {
         switch event.kind {
-        case .taskStarted: return DS.stateWorking
+        case .taskStarted: return DS.stateWorking.opacity(0.7)
         case .taskCompleted: return DS.stateWorking
-        case .fileRead: return .blue
-        case .fileWrite: return .orange
-        case .commandRun: return .cyan
+        case .fileRead: return DS.brand.opacity(0.7)
+        case .fileWrite: return DS.brand
+        case .commandRun, .commandCompleted: return Color.purple
         case .error: return DS.stateError
-        case .modelChanged: return .purple
+        case .modelChanged: return DS.textSecondary
         case .stateChanged: return DS.textTertiary
-        case .subagentStarted: return .teal
-        case .subagentCompleted: return .teal
-        case .commandCompleted: return .mint
+        case .subagentStarted, .subagentCompleted: return DS.textSecondary
         }
     }
 

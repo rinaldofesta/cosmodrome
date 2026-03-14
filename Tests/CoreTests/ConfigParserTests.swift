@@ -108,9 +108,11 @@ final class ConfigParserTests: XCTestCase {
           opacity: 0.95
           restore_state: true
         notifications:
-          agent_needs_input: true
-          agent_error: true
-          process_exited: false
+          needs_input: true
+          error: true
+          completed: false
+          sound: true
+          idle_threshold: 60
         """
         let config = try parser.parseUserConfig(yaml: yaml)
         XCTAssertEqual(config.font?.family, "JetBrains Mono")
@@ -119,9 +121,25 @@ final class ConfigParserTests: XCTestCase {
         XCTAssertEqual(config.theme, "dark")
         XCTAssertEqual(config.window?.opacity, 0.95)
         XCTAssertEqual(config.window?.restoreState, true)
-        XCTAssertEqual(config.notifications?.agentNeedsInput, true)
-        XCTAssertEqual(config.notifications?.agentError, true)
-        XCTAssertEqual(config.notifications?.processExited, false)
+        XCTAssertEqual(config.notifications?.needsInput, true)
+        XCTAssertEqual(config.notifications?.error, true)
+        XCTAssertEqual(config.notifications?.completed, false)
+        XCTAssertEqual(config.notifications?.sound, true)
+        XCTAssertEqual(config.notifications?.idleThreshold, 60)
+    }
+
+    func testParseNotificationDefaults() throws {
+        let yaml = """
+        notifications: {}
+        """
+        let config = try parser.parseUserConfig(yaml: yaml)
+        // All fields should get their default values when parsing empty notifications section
+        let notif = config.notifications!
+        XCTAssertEqual(notif.needsInput, true)
+        XCTAssertEqual(notif.error, true)
+        XCTAssertEqual(notif.completed, false)
+        XCTAssertEqual(notif.sound, false)
+        XCTAssertEqual(notif.idleThreshold, 30)
     }
 
     func testParseEmptyUserConfig() throws {
