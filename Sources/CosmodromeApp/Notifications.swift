@@ -10,21 +10,71 @@ enum AgentNotifications {
         Bundle.main.bundleIdentifier != nil
     }
 
+    /// Track the last time the user interacted with Cosmodrome (mouse click, key press).
+    /// Updated from MainWindowController on input events.
+    static var lastInteractionTime: Date = Date()
+
+    /// Notification preferences from user config. Defaults to sensible values.
+    static var config: UserConfig.NotificationConfig = .default
+
     static func requestPermission() {
         guard isAvailable else { return }
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert]) { _, _ in }
     }
 
     static func notifyAgentState(project: Project, session: Session) {
         guard isAvailable else { return }
-        guard session.agentState == .needsInput || session.agentState == .error else { return }
+
+        // Determine the notification type and check if it's enabled
+        let agentState = session.agentState
+        switch agentState {
+        case .needsInput:
+            guard config.needsInput else { return }
+        case .error:
+            guard config.error else { return }
+        case .inactive:
+            // inactive after working = task completed
+            guard config.completed else { return }
+        case .working:
+            // No notification for working state
+            return
+        }
+
+        // Smart idle threshold: only notify if user hasn't interacted recently
+        let idleDuration = Date().timeIntervalSince(lastInteractionTime)
+        guard idleDuration >= Double(config.idleThreshold) else { return }
 
         let content = UNMutableNotificationContent()
         content.title = "\(project.name) — \(session.name)"
-        content.body = session.agentState == .needsInput
-            ? "Waiting for input"
-            : "Error encountered"
+
+        // Rich notification body: use prompt context or narrative for details
+        switch agentState {
+        case .needsInput:
+            if let context = session.promptContext {
+                content.body = "Asking: \(String(context.prefix(100)))"
+            } else if let narrative = session.narrative, let interp = narrative.interpretation {
+                content.body = String(interp.prefix(100))
+            } else {
+                content.body = "Waiting for input"
+            }
+        case .error:
+            if let narrative = session.narrative, let interp = narrative.interpretation {
+                content.body = String(interp.prefix(100))
+            } else {
+                content.body = "Error encountered"
+            }
+        case .inactive:
+            if let narrative = session.narrative, let interp = narrative.interpretation {
+                content.body = String(interp.prefix(100))
+            } else {
+                content.body = "Task completed"
+            }
+        case .working:
+            return
+        }
+
         content.interruptionLevel = .timeSensitive
+
         content.userInfo = [
             "projectId": project.id.uuidString,
             "sessionId": session.id.uuidString,
@@ -48,6 +98,7 @@ enum AgentNotifications {
             : notification.title
         content.body = notification.body
         content.interruptionLevel = .active
+
         content.userInfo = [
             "projectId": project.id.uuidString,
             "sessionId": session.id.uuidString,

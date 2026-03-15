@@ -10,18 +10,33 @@ final class TerminalContentView: NSView {
     private let layoutEngine = LayoutEngine()
     private var cachedEntries: [LayoutEngine.LayoutEntry] = []
 
-    // Session border/label overlays
+    // Session border/label/header overlays
     private var sessionBorderLayers: [UUID: CALayer] = [:]
     private var sessionLabelLayers: [UUID: CATextLayer] = [:]
     private var sessionAttentionLayers: [UUID: CALayer] = [:]
+    private var sessionDimLayers: [UUID: CALayer] = [:]
+    private var sessionHeaderLayers: [UUID: CALayer] = [:]
+    private var sessionHeaderDotLayers: [UUID: CALayer] = [:]
+    private var sessionHeaderTextLayers: [UUID: CATextLayer] = [:]
     private var hoveredSessionId: UUID?
     private var sessionTrackingArea: NSTrackingArea?
+
+    // Cursor blink state
+    private var cursorBlinkTimer: Timer?
+    private var cursorBlinkPhase: Double = 0
+    private(set) var cursorOpacity: Float = 1.0
 
     // Phantom scroll guard: suppress scroll events shortly after focus changes.
     // macOS can deliver stale scroll events with outdated state after window/view
     // focus transitions, causing phantom scrolling. (Same root cause as Ghostty #11276.)
     private var lastFocusChangeTime: CFAbsoluteTime = 0
     private let focusGuardInterval: CFAbsoluteTime = 0.15 // 150ms
+
+    // Smooth scroll accumulator: trackpad pixel deltas are accumulated here and
+    // converted to whole lines only when the threshold (one line height in points)
+    // is reached.  The remainder carries over for sub-line precision.  Reset when
+    // the scroll gesture ends (phase .ended / momentum .ended).
+    private var scrollAccumulator: CGFloat = 0
 
     // Current session state
     var sessions: [(session: Session, backend: TerminalBackend)] = [] {
@@ -37,7 +52,13 @@ final class TerminalContentView: NSView {
     // (viewportRow + scrollbackCount - scrollOffset) so they survive scrolling.
     private(set) var selection: TerminalSelection?
     private var isDragging = false
+    private var autoScrollTimer: Timer?
     private var lastBackingScale: CGFloat = 0
+
+    // Grid layout constants
+    private let gridGap: CGFloat = Spacing.xs       // 4px gap between cells
+    private let cellCornerRadius: CGFloat = Radius.md // 6px corner radius
+    private let sessionHeaderHeight: CGFloat = Spacing.xl // 24px header bar
 
     init(frame frameRect: NSRect, userConfig: UserConfig? = nil) {
         self.metalView = MTKView(frame: frameRect)
@@ -65,6 +86,7 @@ final class TerminalContentView: NSView {
         }
 
         updateTrackingArea()
+        startCursorBlinkTimer()
     }
 
     override func updateTrackingAreas() {
@@ -117,6 +139,10 @@ final class TerminalContentView: NSView {
         fatalError()
     }
 
+    deinit {
+        stopCursorBlinkTimer()
+    }
+
     override var acceptsFirstResponder: Bool { true }
 
     override func becomeFirstResponder() -> Bool {
@@ -128,6 +154,27 @@ final class TerminalContentView: NSView {
     /// guard also covers app-level focus changes (not just first-responder changes).
     func resetFocusGuard() {
         lastFocusChangeTime = CFAbsoluteTimeGetCurrent()
+    }
+
+    // MARK: - Cursor Blink
+
+    private func startCursorBlinkTimer() {
+        // Fires at 30fps, updates cursor opacity with smooth sine curve.
+        // No allocation in the render loop — only updates a float property.
+        let timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.cursorBlinkPhase += 1.0 / 30.0
+            // Smooth sine oscillation: period = 1.0s, range = 0.3..1.0
+            let sine = sin(self.cursorBlinkPhase * .pi * 2.0) // -1..1
+            let opacity = Float(0.65 + 0.35 * sine)           // 0.3..1.0
+            self.cursorOpacity = opacity
+        }
+        cursorBlinkTimer = timer
+    }
+
+    private func stopCursorBlinkTimer() {
+        cursorBlinkTimer?.invalidate()
+        cursorBlinkTimer = nil
     }
 
     // MARK: - Layout
@@ -168,6 +215,7 @@ final class TerminalContentView: NSView {
         let sessionIds = sessions.map(\.session.id)
         let scale = window?.backingScaleFactor ?? 2.0
         let bounds = self.bounds
+        let isGrid = sessions.count > 1
 
         layoutEngine.focusedSessionId = focusedSessionId
         cachedEntries = layoutEngine.layout(sessionIds: sessionIds, in: bounds)
@@ -175,15 +223,38 @@ final class TerminalContentView: NSView {
         var renderEntries: [TerminalRenderer.SessionRenderEntry] = []
 
         // Content padding: breathing room between view edges and terminal text (points).
-        // Gives a polished look and prevents text from touching borders.
-        let contentPadding: CGFloat = sessions.count > 1 ? 6 : 8
+        // Left padding is 8px for modern look; right/top/bottom get smaller padding.
+        let leftPad: CGFloat = Spacing.sm          // 8px
+        let rightPad: CGFloat = Spacing.xs          // 4px
+        let topPad: CGFloat = Spacing.xs            // 4px
+        let bottomPad: CGFloat = Spacing.xs         // 4px
 
         for entry in cachedEntries {
             guard let pair = sessions.first(where: { $0.session.id == entry.sessionId }) else { continue }
             let backend = pair.backend
 
-            // Inset the rendering area for padding
-            let insetFrame = entry.frame.insetBy(dx: contentPadding, dy: contentPadding)
+            // Apply grid gap: inset the layout entry frame by half the gap on each side
+            var cellFrame = entry.frame
+            if isGrid {
+                cellFrame = cellFrame.insetBy(dx: gridGap / 2, dy: gridGap / 2)
+            }
+
+            // Reserve space for session header bar (in grid mode with 2+ sessions)
+            let headerOffset: CGFloat = isGrid ? sessionHeaderHeight : 0
+            let terminalFrame = CGRect(
+                x: cellFrame.origin.x,
+                y: cellFrame.origin.y,
+                width: cellFrame.width,
+                height: cellFrame.height - headerOffset
+            )
+
+            // Asymmetric content padding within the terminal frame
+            let insetFrame = CGRect(
+                x: terminalFrame.origin.x + leftPad,
+                y: terminalFrame.origin.y + bottomPad,
+                width: terminalFrame.width - leftPad - rightPad,
+                height: terminalFrame.height - topPad - bottomPad
+            )
 
             // cellW/cellH are in scaled font units (font created at size * backingScaleFactor)
             let cellW = renderer.fontManager.cellMetrics.width
@@ -236,14 +307,18 @@ final class TerminalContentView: NSView {
                 height: max(1, Int(pixelH))
             )
 
+            let isFocused = entry.sessionId == focusedSessionId
+
             renderEntries.append(TerminalRenderer.SessionRenderEntry(
                 backend: backend,
                 viewport: viewport,
-                scissor: scissor
+                scissor: scissor,
+                isFocused: isFocused
             ))
         }
 
         renderer.visibleSessions = renderEntries
+        renderer.cursorOpacity = cursorOpacity
 
         // Convert absolute selection to viewport-relative for the renderer
         if let sel = selection,
@@ -272,11 +347,12 @@ final class TerminalContentView: NSView {
         updateSessionOverlays()
     }
 
-    /// Draw thin borders and labels over each session viewport for visual separation.
+    /// Draw borders, headers, dim overlays, and attention rings over each session viewport.
     private func updateSessionOverlays() {
         guard let layer else { return }
 
         let activeIds = Set(cachedEntries.map(\.sessionId))
+        let isGrid = sessions.count > 1
 
         // Remove stale overlays
         for (id, borderLayer) in sessionBorderLayers where !activeIds.contains(id) {
@@ -291,14 +367,30 @@ final class TerminalContentView: NSView {
             attLayer.removeFromSuperlayer()
             sessionAttentionLayers.removeValue(forKey: id)
         }
-
-        let showOverlays = sessions.count > 1
+        for (id, dimLayer) in sessionDimLayers where !activeIds.contains(id) {
+            dimLayer.removeFromSuperlayer()
+            sessionDimLayers.removeValue(forKey: id)
+        }
+        for (id, headerLayer) in sessionHeaderLayers where !activeIds.contains(id) {
+            headerLayer.removeFromSuperlayer()
+            sessionHeaderLayers.removeValue(forKey: id)
+            sessionHeaderDotLayers[id]?.removeFromSuperlayer()
+            sessionHeaderDotLayers.removeValue(forKey: id)
+            sessionHeaderTextLayers[id]?.removeFromSuperlayer()
+            sessionHeaderTextLayers.removeValue(forKey: id)
+        }
 
         for entry in cachedEntries {
             let isFocused = entry.sessionId == focusedSessionId
             let session = sessions.first { $0.session.id == entry.sessionId }?.session
 
-            // Border layer
+            // Calculate the cell frame with grid gap applied
+            var cellFrame = entry.frame
+            if isGrid {
+                cellFrame = cellFrame.insetBy(dx: gridGap / 2, dy: gridGap / 2)
+            }
+
+            // --- Border layer ---
             let borderLayer: CALayer
             if let existing = sessionBorderLayers[entry.sessionId] {
                 borderLayer = existing
@@ -309,36 +401,176 @@ final class TerminalContentView: NSView {
                 sessionBorderLayers[entry.sessionId] = borderLayer
             }
 
-            // NSView uses bottom-left origin, same as layout entries
-            let borderInset: CGFloat = 2
-            let borderFrame = entry.frame.insetBy(dx: borderInset, dy: borderInset)
-
             CATransaction.begin()
             CATransaction.setAnimationDuration(0.15)
-            borderLayer.frame = borderFrame
-            borderLayer.cornerRadius = 5
+            borderLayer.frame = cellFrame
+            borderLayer.cornerRadius = cellCornerRadius
+            borderLayer.masksToBounds = true
 
-            if showOverlays {
+            if isGrid {
                 let isDark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
                 if isFocused {
-                    borderLayer.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.50).cgColor
+                    // Focused: state-colored border at 40% or DS.borderStrong with shadow
+                    let agentState = session?.agentState ?? .inactive
+                    let stateNSColor = Self.nsColorForState(agentState)
+                    borderLayer.borderColor = stateNSColor.withAlphaComponent(0.40).cgColor
                     borderLayer.borderWidth = 1.5
-                    borderLayer.backgroundColor = nil
+                    borderLayer.shadowColor = NSColor.black.cgColor
+                    borderLayer.shadowOpacity = 0.3
+                    borderLayer.shadowRadius = 4
+                    borderLayer.shadowOffset = CGSize(width: 0, height: -1)
+                    borderLayer.masksToBounds = false
                 } else {
+                    // Unfocused: subtle border
                     let subtleBorder = isDark
                         ? NSColor.white.withAlphaComponent(0.06)
                         : NSColor.black.withAlphaComponent(0.06)
                     borderLayer.borderColor = subtleBorder.cgColor
                     borderLayer.borderWidth = 0.5
-                    borderLayer.backgroundColor = nil
+                    borderLayer.shadowOpacity = 0
+                    borderLayer.masksToBounds = true
                 }
             } else {
                 borderLayer.borderWidth = 0
-                borderLayer.backgroundColor = nil
+                borderLayer.shadowOpacity = 0
             }
             CATransaction.commit()
 
-            // Attention ring for sessions with unread notifications
+            // --- Dim overlay for unfocused sessions ---
+            if isGrid && !isFocused {
+                let dimLayer: CALayer
+                if let existing = sessionDimLayers[entry.sessionId] {
+                    dimLayer = existing
+                } else {
+                    dimLayer = CALayer()
+                    dimLayer.zPosition = 8  // Below border (10) but above terminal content
+                    layer.addSublayer(dimLayer)
+                    sessionDimLayers[entry.sessionId] = dimLayer
+                }
+                CATransaction.begin()
+                CATransaction.setAnimationDuration(0.15)
+                dimLayer.frame = cellFrame
+                dimLayer.cornerRadius = cellCornerRadius
+                dimLayer.masksToBounds = true
+                // 15% black overlay dims content to ~85% brightness
+                dimLayer.backgroundColor = NSColor.black.withAlphaComponent(0.15).cgColor
+                dimLayer.isHidden = false
+                CATransaction.commit()
+            } else {
+                if let dimLayer = sessionDimLayers[entry.sessionId] {
+                    dimLayer.isHidden = true
+                }
+            }
+
+            // --- Session Header Bar (grid mode, 2+ sessions) ---
+            if isGrid, let session {
+                let headerFrame = CGRect(
+                    x: cellFrame.origin.x,
+                    y: cellFrame.maxY - sessionHeaderHeight,
+                    width: cellFrame.width,
+                    height: sessionHeaderHeight
+                )
+
+                // Header background layer
+                let headerLayer: CALayer
+                if let existing = sessionHeaderLayers[entry.sessionId] {
+                    headerLayer = existing
+                } else {
+                    headerLayer = CALayer()
+                    headerLayer.zPosition = 12
+                    // Rounded top corners only via masking
+                    headerLayer.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+                    layer.addSublayer(headerLayer)
+                    sessionHeaderLayers[entry.sessionId] = headerLayer
+                }
+
+                CATransaction.begin()
+                CATransaction.setAnimationDuration(0.15)
+                let isDark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                headerLayer.frame = headerFrame
+                headerLayer.cornerRadius = cellCornerRadius
+                headerLayer.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+                headerLayer.masksToBounds = true
+                // DS.bgSurface: #2A2A2D
+                headerLayer.backgroundColor = isDark
+                    ? NSColor(red: 0.165, green: 0.165, blue: 0.176, alpha: 1).cgColor
+                    : NSColor(red: 0.98, green: 0.98, blue: 0.99, alpha: 1).cgColor
+                headerLayer.isHidden = false
+
+                // State dot (8px circle)
+                let dotLayer: CALayer
+                if let existing = sessionHeaderDotLayers[entry.sessionId] {
+                    dotLayer = existing
+                } else {
+                    dotLayer = CALayer()
+                    dotLayer.zPosition = 13
+                    layer.addSublayer(dotLayer)
+                    sessionHeaderDotLayers[entry.sessionId] = dotLayer
+                }
+                let dotSize: CGFloat = 8
+                let dotY = headerFrame.origin.y + (sessionHeaderHeight - dotSize) / 2
+                dotLayer.frame = CGRect(x: headerFrame.origin.x + Spacing.sm, y: dotY, width: dotSize, height: dotSize)
+                dotLayer.cornerRadius = dotSize / 2
+                dotLayer.backgroundColor = Self.nsColorForState(session.agentState).cgColor
+
+                // Header text
+                let textLayer: CATextLayer
+                if let existing = sessionHeaderTextLayers[entry.sessionId] {
+                    textLayer = existing
+                } else {
+                    textLayer = CATextLayer()
+                    textLayer.zPosition = 13
+                    textLayer.contentsScale = window?.backingScaleFactor ?? 2.0
+                    textLayer.fontSize = 10  // Typo.footnote size
+                    textLayer.font = NSFont.systemFont(ofSize: 10, weight: .regular) as CTFont
+                    textLayer.truncationMode = .end
+                    textLayer.alignmentMode = .left
+                    layer.addSublayer(textLayer)
+                    sessionHeaderTextLayers[entry.sessionId] = textLayer
+                }
+
+                // Build header string: "session-name  Agent Model  ctx: XX%  Xm"
+                var parts: [String] = [session.name]
+                if let agentType = session.agentType {
+                    var agentInfo = agentType.capitalized
+                    if let model = session.agentModel {
+                        agentInfo += " \u{00B7} \(model)"
+                    }
+                    parts.append(agentInfo)
+                }
+                if let ctx = session.agentContext {
+                    parts.append("ctx: \(ctx)")
+                }
+                if let since = session.agentSince {
+                    let elapsed = Int(Date().timeIntervalSince(since))
+                    if elapsed >= 60 {
+                        parts.append("\(elapsed / 60)m")
+                    }
+                }
+                let headerText = parts.joined(separator: "  ")
+
+                textLayer.string = headerText
+                textLayer.foregroundColor = isDark
+                    ? NSColor.white.withAlphaComponent(0.60).cgColor
+                    : NSColor.black.withAlphaComponent(0.60).cgColor
+
+                let textX = headerFrame.origin.x + Spacing.sm + dotSize + Spacing.sm
+                let textY = headerFrame.origin.y + (sessionHeaderHeight - 14) / 2
+                textLayer.frame = CGRect(
+                    x: textX,
+                    y: textY,
+                    width: headerFrame.width - (textX - headerFrame.origin.x) - Spacing.sm,
+                    height: 14
+                )
+
+                CATransaction.commit()
+            } else {
+                sessionHeaderLayers[entry.sessionId]?.isHidden = true
+                sessionHeaderDotLayers[entry.sessionId]?.isHidden = true
+                sessionHeaderTextLayers[entry.sessionId]?.isHidden = true
+            }
+
+            // --- Attention ring for sessions with unread notifications ---
             let hasNotification = session?.hasUnreadNotification ?? false
             if hasNotification {
                 let attLayer: CALayer
@@ -359,8 +591,8 @@ final class TerminalContentView: NSView {
                     pulse.repeatCount = .infinity
                     attLayer.add(pulse, forKey: "attentionPulse")
                 }
-                attLayer.frame = borderFrame
-                attLayer.cornerRadius = 4
+                attLayer.frame = cellFrame
+                attLayer.cornerRadius = cellCornerRadius
                 attLayer.borderWidth = 2
                 attLayer.borderColor = NSColor(calibratedRed: 1.0, green: 0.82, blue: 0.28, alpha: 0.6).cgColor
                 attLayer.isHidden = false
@@ -368,8 +600,9 @@ final class TerminalContentView: NSView {
                 sessionAttentionLayers[entry.sessionId]?.isHidden = true
             }
 
-            // Label layer (session name in top-left corner)
-            guard showOverlays, let session else {
+            // --- Label layer (session name in top-right corner, hover only) ---
+            // In grid mode with headers, the label is redundant — skip it
+            guard !isGrid, let session else {
                 sessionLabelLayers[entry.sessionId]?.isHidden = true
                 continue
             }
@@ -408,9 +641,9 @@ final class TerminalContentView: NSView {
             let labelW: CGFloat = CGFloat(labelText.count) * 6.0 + 12
             let labelH: CGFloat = 16
             labelLayer.frame = CGRect(
-                x: entry.frame.maxX - min(labelW, entry.frame.width - 8) - 4,
-                y: entry.frame.maxY - labelH - 4,
-                width: min(labelW, entry.frame.width - 8),
+                x: cellFrame.maxX - min(labelW, cellFrame.width - 8) - 4,
+                y: cellFrame.maxY - labelH - 4,
+                width: min(labelW, cellFrame.width - 8),
                 height: labelH
             )
 
@@ -419,6 +652,22 @@ final class TerminalContentView: NSView {
             labelLayer.opacity = showLabel ? 1.0 : 0.0
 
             CATransaction.commit()
+        }
+    }
+
+    // MARK: - State Color Helper
+
+    /// Returns NSColor for agent state (used for CALayer which needs CGColor).
+    private static func nsColorForState(_ state: AgentState) -> NSColor {
+        switch state {
+        case .working:
+            return NSColor(red: 0.204, green: 0.780, blue: 0.349, alpha: 1) // #34C759
+        case .needsInput:
+            return NSColor(red: 1.000, green: 0.839, blue: 0.039, alpha: 1) // #FFD60A
+        case .error:
+            return NSColor(red: 1.000, green: 0.271, blue: 0.227, alpha: 1) // #FF453A
+        case .inactive:
+            return NSColor(red: 0.451, green: 0.451, blue: 0.451, alpha: 1) // #737373
         }
     }
 
@@ -458,6 +707,12 @@ final class TerminalContentView: NSView {
         // Suppress cancelled/mayBegin phases — these are not actionable scroll input.
         if event.phase == .cancelled || event.phase == .mayBegin { return }
 
+        // Reset the accumulator when the gesture or momentum phase ends, so the
+        // next gesture starts fresh without leftover fractional delta.
+        if event.phase == .ended || event.momentumPhase == .ended {
+            scrollAccumulator = 0
+        }
+
         // Suppress scroll events shortly after focus changes to prevent phantom scrolling
         // from stale NSEvent state delivered by macOS during window/view transitions.
         let timeSinceFocus = CFAbsoluteTimeGetCurrent() - lastFocusChangeTime
@@ -479,39 +734,72 @@ final class TerminalContentView: NSView {
         let deltaY = event.scrollingDeltaY
         guard deltaY != 0 else { return }
 
-        let lines: Int
         if event.hasPreciseScrollingDeltas {
-            // Trackpad: convert pixel delta to line count
-            lines = max(1, Int(abs(deltaY) / 10.0))
-        } else {
-            // Mouse wheel: delta is already line-granularity
-            lines = max(1, Int(abs(deltaY)))
-        }
-        let scrollUp = deltaY > 0
-
-        if backend.isMouseReportingActive {
-            // App has mouse reporting on — send proper mouse wheel events.
-            // Button 4 = scroll up, 5 = scroll down (encoded as 64/65 in xterm).
-            let button = scrollUp ? 4 : 5
-            let point = convert(event.locationInWindow, from: nil)
-            let cell = cellAt(point: point) ?? (row: 0, col: 0)
-
-            for _ in 0..<lines {
-                backend.sendMouseEvent(button: button, x: cell.col, y: cell.row)
+            // Trackpad (including momentum): accumulate pixel deltas and convert to
+            // whole lines when the threshold is reached.  This avoids the old behaviour
+            // of always scrolling at least 1 line per event (which felt jerky and broke
+            // momentum deceleration).
+            //
+            // lineHeight is in points — the same coordinate space as scrollingDeltaY
+            // when hasPreciseScrollingDeltas is true.
+            let scale = window?.backingScaleFactor ?? 2.0
+            let lineHeight: CGFloat
+            if let cellH = renderer?.fontManager.cellMetrics.height, cellH > 0 {
+                lineHeight = cellH / scale  // convert from scaled pixels to points
+            } else {
+                lineHeight = 14.0           // sensible fallback
             }
 
-            // Flush the response data that sendEvent generated
-            if let sendData = backend.pendingSendData() {
-                NotificationCenter.default.post(
-                    name: .cosmodromePasteData,
-                    object: nil,
-                    userInfo: ["data": sendData, "fd": pair.session.ptyFD]
-                )
+            scrollAccumulator += deltaY
+
+            let wholeLines = Int(scrollAccumulator / lineHeight)
+            guard wholeLines != 0 else { return }
+            // Keep the fractional remainder for the next event.
+            scrollAccumulator -= CGFloat(wholeLines) * lineHeight
+
+            let scrollUp = wholeLines > 0
+            let absLines = abs(wholeLines)
+
+            if backend.isMouseReportingActive {
+                let button = scrollUp ? 4 : 5
+                let point = convert(event.locationInWindow, from: nil)
+                let cell = cellAt(point: point) ?? (row: 0, col: 0)
+                for _ in 0..<absLines {
+                    backend.sendMouseEvent(button: button, x: cell.col, y: cell.row)
+                }
+                if let sendData = backend.pendingSendData() {
+                    NotificationCenter.default.post(
+                        name: .cosmodromePasteData,
+                        object: nil,
+                        userInfo: ["data": sendData, "fd": pair.session.ptyFD]
+                    )
+                }
+            } else {
+                backend.scroll(lines: scrollUp ? absLines : -absLines)
             }
         } else {
-            // Normal scrollback: scroll the viewport through history.
-            // Selection uses absolute row coordinates, so it survives scrolling.
-            backend.scroll(lines: scrollUp ? lines : -lines)
+            // Discrete mouse wheel: delta is already in line granularity.
+            // No accumulator needed — each click is intentional.
+            let lines = max(1, Int(abs(deltaY)))
+            let scrollUp = deltaY > 0
+
+            if backend.isMouseReportingActive {
+                let button = scrollUp ? 4 : 5
+                let point = convert(event.locationInWindow, from: nil)
+                let cell = cellAt(point: point) ?? (row: 0, col: 0)
+                for _ in 0..<lines {
+                    backend.sendMouseEvent(button: button, x: cell.col, y: cell.row)
+                }
+                if let sendData = backend.pendingSendData() {
+                    NotificationCenter.default.post(
+                        name: .cosmodromePasteData,
+                        object: nil,
+                        userInfo: ["data": sendData, "fd": pair.session.ptyFD]
+                    )
+                }
+            } else {
+                backend.scroll(lines: scrollUp ? lines : -lines)
+            }
         }
     }
 
@@ -548,28 +836,38 @@ final class TerminalContentView: NSView {
               let pair = sessions.first(where: { $0.session.id == focusedId }) else { return }
         let point = convert(event.locationInWindow, from: nil)
 
-        // Auto-scroll when dragging near edges
-        let edgeZone: CGFloat = 20
+        // Auto-scroll when dragging outside the terminal grid
+        var scrollDir = 0
         if let entry = cachedEntries.first(where: { $0.sessionId == focusedId }) {
-            if point.y < entry.frame.minY + edgeZone {
-                // Near bottom edge (NSView coords) → scroll down (newer content)
+            if point.y < entry.frame.minY {
+                // Below bottom edge (NSView coords) -> scroll down (newer content)
+                scrollDir = -1
                 pair.backend.scroll(lines: -2)
-            } else if point.y > entry.frame.maxY - edgeZone {
-                // Near top edge (NSView coords) → scroll up (older content)
+            } else if point.y > entry.frame.maxY {
+                // Above top edge (NSView coords) -> scroll up (older content)
+                scrollDir = 1
                 pair.backend.scroll(lines: 2)
             }
         }
 
-        if let cell = cellAt(point: point) {
-            let absRow = cell.row + pair.backend.scrollbackCount - pair.backend.scrollOffset
-            sel.endRow = absRow
-            sel.endCol = cell.col
-            selection = sel
-            updateLayout() // Updates renderer.selection with viewport conversion
+        // Start/stop autoscroll timer for continuous scrolling while mouse is held outside
+        if scrollDir != 0 {
+            startAutoScroll(direction: scrollDir, pair: pair, selection: &sel)
+        } else {
+            stopAutoScroll()
         }
+
+        // Use clamped cell coordinates so selection extends to edge when mouse is outside
+        let cell = cellAtClamped(point: point)
+        let absRow = cell.row + pair.backend.scrollbackCount - pair.backend.scrollOffset
+        sel.endRow = absRow
+        sel.endCol = cell.col
+        selection = sel
+        updateLayout()
     }
 
     override func mouseUp(with event: NSEvent) {
+        stopAutoScroll()
         if isDragging, let sel = selection {
             // Clear selection if it's empty (single click, no drag)
             if sel.startRow == sel.endRow && sel.startCol == sel.endCol {
@@ -621,6 +919,56 @@ final class TerminalContentView: NSView {
 
     // MARK: - Private Helpers
 
+    /// Like `cellAt` but clamps to the grid edges instead of returning nil.
+    /// Used during drag selection so the endpoint stays at the edge when the mouse
+    /// moves outside the terminal grid.
+    private func cellAtClamped(point: NSPoint) -> (row: Int, col: Int) {
+        if let cell = cellAt(point: point) { return cell }
+        // Mouse is outside grid — clamp to nearest edge
+        guard let _ = renderer,
+              let focusedId = focusedSessionId,
+              let entry = cachedEntries.first(where: { $0.sessionId == focusedId }),
+              let pair = sessions.first(where: { $0.session.id == focusedId }) else { return (row: 0, col: 0) }
+        let backend = pair.backend
+        let isGrid = sessions.count > 1
+        var cellFrame = entry.frame
+        if isGrid { cellFrame = cellFrame.insetBy(dx: gridGap / 2, dy: gridGap / 2) }
+        let headerOffset: CGFloat = isGrid ? sessionHeaderHeight : 0
+        let midY = cellFrame.origin.y + (cellFrame.height - headerOffset) / 2
+        // Above midpoint (NSView coords) → top of grid (row 0), below → bottom (last row)
+        let row = point.y > midY ? 0 : backend.rows - 1
+        let col = point.x < cellFrame.midX ? 0 : backend.cols - 1
+        return (row: row, col: col)
+    }
+
+    private func startAutoScroll(direction: Int, pair: (session: Session, backend: TerminalBackend), selection: inout TerminalSelection) {
+        guard autoScrollTimer == nil else { return }
+        let sessionId = pair.session.id
+        let scrollAmount = direction > 0 ? 2 : -2
+        autoScrollTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+            guard let self, self.isDragging,
+                  var sel = self.selection,
+                  let p = self.sessions.first(where: { $0.session.id == sessionId }) else {
+                self?.stopAutoScroll()
+                return
+            }
+            p.backend.scroll(lines: scrollAmount)
+            // Extend selection to the edge row after scrolling
+            let edgeRow = scrollAmount > 0 ? 0 : p.backend.rows - 1
+            let edgeCol = scrollAmount > 0 ? 0 : p.backend.cols - 1
+            let absRow = edgeRow + p.backend.scrollbackCount - p.backend.scrollOffset
+            sel.endRow = absRow
+            sel.endCol = edgeCol
+            self.selection = sel
+            self.updateLayout()
+        }
+    }
+
+    private func stopAutoScroll() {
+        autoScrollTimer?.invalidate()
+        autoScrollTimer = nil
+    }
+
     /// Map a point (in NSView coordinates) to a cell (row, col) in the focused session.
     private func cellAt(point: NSPoint) -> (row: Int, col: Int)? {
         guard let renderer,
@@ -632,10 +980,31 @@ final class TerminalContentView: NSView {
         let cellW = renderer.fontManager.cellMetrics.width
         let cellH = renderer.fontManager.cellMetrics.height
         let backend = pair.backend
+        let isGrid = sessions.count > 1
 
         // Must match the padding/centering logic in updateLayout()
-        let contentPadding: CGFloat = sessions.count > 1 ? 6 : 8
-        let insetFrame = entry.frame.insetBy(dx: contentPadding, dy: contentPadding)
+        var cellFrame = entry.frame
+        if isGrid {
+            cellFrame = cellFrame.insetBy(dx: gridGap / 2, dy: gridGap / 2)
+        }
+        let headerOffset: CGFloat = isGrid ? sessionHeaderHeight : 0
+        let terminalFrame = CGRect(
+            x: cellFrame.origin.x,
+            y: cellFrame.origin.y,
+            width: cellFrame.width,
+            height: cellFrame.height - headerOffset
+        )
+        let leftPad: CGFloat = Spacing.sm
+        let rightPad: CGFloat = Spacing.xs
+        let topPad: CGFloat = Spacing.xs
+        let bottomPad: CGFloat = Spacing.xs
+        let insetFrame = CGRect(
+            x: terminalFrame.origin.x + leftPad,
+            y: terminalFrame.origin.y + bottomPad,
+            width: terminalFrame.width - leftPad - rightPad,
+            height: terminalFrame.height - topPad - bottomPad
+        )
+
         let gridPixelW = CGFloat(backend.cols) * cellW
         let gridPixelH = CGFloat(backend.rows) * cellH
         let padX = floor((insetFrame.width * scale - gridPixelW) / 2)

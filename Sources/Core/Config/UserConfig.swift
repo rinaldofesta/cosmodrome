@@ -135,21 +135,41 @@ public struct UserConfig: Codable {
     }
 
     public struct NotificationConfig: Codable {
-        public var agentNeedsInput: Bool?
-        public var agentError: Bool?
-        public var processExited: Bool?
+        public var needsInput: Bool
+        public var error: Bool
+        public var completed: Bool
+        public var idleThreshold: Int  // seconds
 
         enum CodingKeys: String, CodingKey {
-            case agentNeedsInput = "agent_needs_input"
-            case agentError = "agent_error"
-            case processExited = "process_exited"
+            case needsInput = "needs_input"
+            case error
+            case completed
+            case idleThreshold = "idle_threshold"
         }
 
-        public init(agentNeedsInput: Bool? = nil, agentError: Bool? = nil, processExited: Bool? = nil) {
-            self.agentNeedsInput = agentNeedsInput
-            self.agentError = agentError
-            self.processExited = processExited
+        public init(
+            needsInput: Bool = true,
+            error: Bool = true,
+            completed: Bool = false,
+            idleThreshold: Int = 30
+        ) {
+            self.needsInput = needsInput
+            self.error = error
+            self.completed = completed
+            self.idleThreshold = idleThreshold
         }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            let defaults = NotificationConfig()
+            needsInput = try container.decodeIfPresent(Bool.self, forKey: .needsInput) ?? defaults.needsInput
+            error = try container.decodeIfPresent(Bool.self, forKey: .error) ?? defaults.error
+            completed = try container.decodeIfPresent(Bool.self, forKey: .completed) ?? defaults.completed
+            idleThreshold = try container.decodeIfPresent(Int.self, forKey: .idleThreshold) ?? defaults.idleThreshold
+        }
+
+        /// Default configuration used when no user config is provided.
+        public static let `default` = NotificationConfig()
     }
 }
 

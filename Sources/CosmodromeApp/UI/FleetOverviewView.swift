@@ -183,7 +183,7 @@ struct FleetOverviewView: View {
 
     private var allAgents: [(project: Project, session: Session)] {
         projectStore.allAgentSessions.sorted { a, b in
-            priorityFor(a.session.agentState) > priorityFor(b.session.agentState)
+            urgencyFor(a.session) > urgencyFor(b.session)
         }
     }
 
@@ -207,12 +207,17 @@ struct FleetOverviewView: View {
         }
     }
 
-    private func priorityFor(_ state: AgentState) -> Int {
-        switch state {
-        case .error: return 4
-        case .needsInput: return 3
-        case .working: return 2
-        case .inactive: return 1
+    /// Sort by urgency score (from narrative). Falls back to state-based priority.
+    private func urgencyFor(_ session: Session) -> Int {
+        if let urgency = session.narrative?.urgency {
+            return urgency.value
+        }
+        // Fallback: state-based priority
+        switch session.agentState {
+        case .error: return 50
+        case .needsInput: return 60
+        case .working: return 10
+        case .inactive: return 0
         }
     }
 
@@ -308,9 +313,9 @@ struct AgentCardView: View {
                 }
             }
 
-            // Row 2b: Narrative headline
+            // Row 2b: Narrative — show interpretation if available, else headline
             if let narrative = session.narrative {
-                Text(narrative.headline)
+                Text(narrative.interpretation ?? narrative.headline)
                     .font(Typo.footnote)
                     .foregroundColor(narrativeColor)
                     .lineLimit(2)
@@ -433,36 +438,45 @@ struct AgentCardView: View {
         return DS.textTertiary
     }
 
+    private var urgencyLevel: UrgencyScorer.Level {
+        session.narrative?.urgency?.level ?? .none
+    }
+
     private var narrativeColor: Color {
-        if session.stuckInfo != nil { return DS.stateError.opacity(0.9) }
-        switch session.agentState {
-        case .working: return DS.textSecondary
-        case .needsInput: return DS.stateNeedsInput.opacity(0.9)
-        case .error: return DS.stateError.opacity(0.8)
-        case .inactive: return DS.textTertiary
+        switch urgencyLevel {
+        case .critical: return DS.stateError
+        case .high: return DS.stateNeedsInput.opacity(0.9)
+        case .medium: return DS.textSecondary
+        case .low, .none:
+            if session.agentState == .inactive { return DS.textTertiary }
+            return DS.textSecondary
         }
     }
 
     private var needsAttention: Bool {
-        session.stuckInfo != nil || session.agentState == .needsInput || session.agentState == .error
+        urgencyLevel >= .medium
     }
 
     private var cardBgColor: Color {
-        if needsAttention {
-            return DS.stateColor(for: session.agentState).opacity(0.06)
+        switch urgencyLevel {
+        case .critical: return DS.stateError.opacity(0.08)
+        case .high: return DS.stateNeedsInput.opacity(0.06)
+        case .medium: return DS.stateColor(for: session.agentState).opacity(0.04)
+        default: return isHovered ? DS.bgHover : DS.borderSubtle
         }
-        return isHovered ? DS.bgHover : DS.borderSubtle
     }
 
     private var cardBorderColor: Color {
-        if needsAttention {
-            return DS.stateColor(for: session.agentState).opacity(0.4)
+        switch urgencyLevel {
+        case .critical: return DS.stateError.opacity(0.5)
+        case .high: return DS.stateNeedsInput.opacity(0.4)
+        case .medium: return DS.stateColor(for: session.agentState).opacity(0.3)
+        default: return isHovered ? DS.borderMedium : DS.borderSubtle
         }
-        return isHovered ? DS.borderMedium : DS.borderSubtle
     }
 
     private var cardBorderWidth: CGFloat {
-        needsAttention ? 1.5 : 0.5
+        urgencyLevel >= .high ? 1.5 : urgencyLevel >= .medium ? 1.0 : 0.5
     }
 
     private func miniStat(icon: String, value: String, label: String) -> some View {

@@ -2,6 +2,19 @@ import AppKit
 import Core
 import SwiftUI
 
+/// Custom NSSplitView that hides the divider line.
+/// The sidebar and content area have different background shades (DS.bgSidebar vs DS.bgPrimary),
+/// so the color contrast naturally creates the visual boundary without a hard line.
+private final class InvisibleDividerSplitView: NSSplitView {
+    override var dividerColor: NSColor {
+        .clear
+    }
+
+    override var dividerThickness: CGFloat {
+        1  // Keep 1px for resize handle, but the color is transparent
+    }
+}
+
 final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitViewDelegate {
     let projectStore = ProjectStore()
     private(set) var sessionManager: SessionManager!
@@ -54,6 +67,17 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
 
         super.init(window: window)
         window.delegate = self
+
+        // Wire up notification preferences from user config
+        if let notifConfig = userConfig?.notifications {
+            AgentNotifications.config = notifConfig
+        }
+
+        // Track mouse interactions for notification idle threshold
+        NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .scrollWheel]) { event in
+            AgentNotifications.lastInteractionTime = Date()
+            return event
+        }
 
         sessionManager = SessionManager(projectStore: projectStore)
         keybindingManager = KeybindingManager()
@@ -114,7 +138,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
             width: contentRect.width,
             height: contentRect.height - statusBarHeight
         )
-        let splitView = NSSplitView(frame: splitFrame)
+        let splitView = InvisibleDividerSplitView(frame: splitFrame)
         self.splitView = splitView
         splitView.isVertical = true
         splitView.dividerStyle = .thin
@@ -366,10 +390,11 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
     }
 
     private func focusSession(_ id: UUID) {
-        // Clear unread notification when focusing
+        // Clear unread indicators when focusing
         if let project = projectStore.activeProject,
            let session = project.sessions.first(where: { $0.id == id }) {
             session.hasUnreadNotification = false
+            session.hasUnreadStateChange = false
             AgentNotifications.clearNotification(for: session)
         }
         terminalContentView.focusSession(id)
@@ -771,6 +796,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
     // MARK: - Keybindings
 
     func handleKeyEvent(_ event: NSEvent) -> Bool {
+        // Track user interaction for notification idle threshold
+        AgentNotifications.lastInteractionTime = Date()
+
         // If command palette is visible, handle its input
         if paletteState.isVisible {
             switch event.keyCode {
@@ -1632,8 +1660,80 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
             }
             return .success("[]")
 
+        case "fleet":
+            // Rich fleet status with interpretations and urgency.
+            // Each session includes narrative headline, interpretation, urgency score/level.
+            var sessions: [[String: Any]] = []
+            for project in projectStore.projects {
+                for session in project.sessions {
+                    var s: [String: Any] = [
+                        "id": session.id.uuidString,
+                        "name": session.name,
+                        "project": project.name,
+                        "state": session.agentState.rawValue,
+                        "running": session.isRunning,
+                        "cost": session.stats.totalCost,
+                        "tasks": session.stats.totalTasks,
+                        "files_changed": session.stats.totalFilesChanged,
+                        "errors": session.stats.totalErrors,
+                        "uptime": session.stats.uptimeString,
+                    ]
+                    if let model = session.agentModel { s["model"] = model }
+                    if let agentType = session.agentType { s["agent_type"] = agentType }
+                    if let velocity = session.stats.costPerMinute {
+                        s["cost_per_minute"] = velocity
+                    }
+
+                    // Narrative and interpretation
+                    if let narrative = session.narrative {
+                        s["headline"] = narrative.headline
+                        if let interp = narrative.interpretation { s["interpretation"] = interp }
+                        s["needs_attention"] = narrative.needsAttention
+                        if let urgency = narrative.urgency {
+                            s["urgency_score"] = urgency.value
+                            s["urgency_level"] = urgency.level.rawValue
+                            s["urgency_reason"] = urgency.reason
+                        }
+                    }
+
+                    // Stuck info
+                    if let stuck = session.stuckInfo {
+                        s["stuck"] = true
+                        s["stuck_retries"] = stuck.retryCount
+                        s["stuck_duration"] = stuck.duration
+                        if let pattern = stuck.pattern { s["stuck_pattern"] = pattern }
+                        s["stuck_kind"] = stuck.kind.rawValue
+                    }
+
+                    sessions.append(s)
+                }
+            }
+
+            // Sort by urgency (highest first)
+            sessions.sort { s1, s2 in
+                let u1 = s1["urgency_score"] as? Int ?? 0
+                let u2 = s2["urgency_score"] as? Int ?? 0
+                return u1 > u2
+            }
+
+            let fleet: [String: Any] = [
+                "sessions": sessions,
+                "total_cost": projectStore.fleetTotalCost,
+                "total_tasks": projectStore.fleetTotalTasks,
+                "agents_total": projectStore.fleetAgentCounts.total,
+                "agents_working": projectStore.fleetAgentCounts.working,
+                "agents_idle": projectStore.fleetAgentCounts.idle,
+                "agents_needs_input": projectStore.fleetAgentCounts.needsInput,
+                "agents_error": projectStore.fleetAgentCounts.error,
+            ]
+            if let data = try? JSONSerialization.data(withJSONObject: fleet, options: [.sortedKeys]),
+               let json = String(data: data, encoding: .utf8) {
+                return .success(json)
+            }
+            return .success("{}")
+
         default:
-            return .failure("Unknown command: \(request.command). Available: list-projects, list-sessions, focus, status, content, fleet-stats, activity")
+            return .failure("Unknown command: \(request.command). Available: list-projects, list-sessions, focus, status, content, fleet-stats, fleet, activity")
         }
     }
 

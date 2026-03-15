@@ -41,12 +41,83 @@ final class CommandPaletteState {
     var selectedIndex = 0
     var onDismiss: (() -> Void)?
 
+    /// Recently used commands (in-memory, up to 5).
+    private var recentTitles: [String] = []
+    private static let maxRecents = 5
+
+    /// Preferred category display order. Categories not listed here appear at the end.
+    private static let categoryOrder = ["Attention", "Sessions", "Projects", "Views", "Dev Servers"]
+
+    /// All displayable items: grouped by category (when query is empty) or flat fuzzy-matched results.
     var filteredActions: [PaletteAction] {
-        if query.isEmpty { return actions }
-        let q = query.lowercased()
-        return actions.filter { action in
-            action.title.lowercased().contains(q) ||
-            (action.subtitle?.lowercased().contains(q) ?? false)
+        if query.isEmpty {
+            // Group actions by category, preserving a stable ordering
+            return groupedByCategory(actions)
+        }
+        let words = query.lowercased()
+            .split(separator: " ")
+            .map(String.init)
+        guard !words.isEmpty else { return groupedByCategory(actions) }
+
+        // Score each action by fuzzy word-subsequence matching
+        let scored: [(action: PaletteAction, score: Double)] = actions.compactMap { action in
+            let haystack = (action.title + " " + (action.subtitle ?? "")).lowercased()
+            var matched = 0
+            var totalTightness: Double = 0
+            for word in words {
+                if let tightness = fuzzySubsequenceScore(word: word, in: haystack) {
+                    matched += 1
+                    totalTightness += tightness
+                }
+            }
+            guard matched > 0 else { return nil }
+            // Primary: fraction of words matched. Secondary: tightness (lower = better).
+            let wordScore = Double(matched) / Double(words.count)
+            let tightnessScore = matched > 0 ? totalTightness / Double(matched) : 1.0
+            let combined = wordScore * 1000 - tightnessScore
+            return (action, combined)
+        }
+
+        // Flat results sorted by relevance — no category headers when searching
+        return scored
+            .sorted { $0.score > $1.score }
+            .map(\.action)
+    }
+
+    /// Groups actions by category in a stable display order.
+    private func groupedByCategory(_ items: [PaletteAction]) -> [PaletteAction] {
+        var buckets: [String: [PaletteAction]] = [:]
+        var uncategorized: [PaletteAction] = []
+        for item in items {
+            if let cat = item.category {
+                buckets[cat, default: []].append(item)
+            } else {
+                uncategorized.append(item)
+            }
+        }
+
+        var result: [PaletteAction] = []
+        // Known categories first, in preferred order
+        for cat in Self.categoryOrder {
+            if let group = buckets.removeValue(forKey: cat) {
+                result.append(contentsOf: group)
+            }
+        }
+        // Any remaining categories in alphabetical order
+        for cat in buckets.keys.sorted() {
+            result.append(contentsOf: buckets[cat]!)
+        }
+        // Uncategorized last
+        result.append(contentsOf: uncategorized)
+        return result
+    }
+
+    /// Recent actions to display when query is empty.
+    var recentActions: [PaletteAction] {
+        guard query.isEmpty, !recentTitles.isEmpty else { return [] }
+        // Match recent titles to current actions list, preserving recency order
+        return recentTitles.compactMap { title in
+            actions.first { $0.title == title }
         }
     }
 
@@ -66,7 +137,9 @@ final class CommandPaletteState {
     func confirm() {
         let items = filteredActions
         guard selectedIndex >= 0 && selectedIndex < items.count else { return }
-        let action = items[selectedIndex].action
+        let selected = items[selectedIndex]
+        addToRecents(selected.title)
+        let action = selected.action
         dismiss()
         action()
     }
@@ -81,6 +154,47 @@ final class CommandPaletteState {
         let count = filteredActions.count
         guard count > 0 else { return }
         selectedIndex = (selectedIndex + 1) % count
+    }
+
+    // MARK: - Recents
+
+    private func addToRecents(_ title: String) {
+        recentTitles.removeAll { $0 == title }
+        recentTitles.insert(title, at: 0)
+        if recentTitles.count > Self.maxRecents {
+            recentTitles.removeLast()
+        }
+    }
+
+    // MARK: - Fuzzy Matching
+
+    /// Returns a tightness score (lower = tighter match) if `word` is a subsequence of `haystack`.
+    /// Returns nil if no subsequence match.
+    private func fuzzySubsequenceScore(word: String, in haystack: String) -> Double? {
+        // Exact contains gets best score
+        if haystack.contains(word) { return 0.0 }
+
+        // Subsequence match: each character of word must appear in order in haystack
+        var haystackIndex = haystack.startIndex
+        var firstMatchIndex: String.Index?
+        var lastMatchIndex: String.Index?
+        var wordIter = word.makeIterator()
+        guard var target = wordIter.next() else { return 0.0 }
+
+        while haystackIndex < haystack.endIndex {
+            if haystack[haystackIndex] == target {
+                if firstMatchIndex == nil { firstMatchIndex = haystackIndex }
+                lastMatchIndex = haystackIndex
+                guard let next = wordIter.next() else {
+                    // All characters matched — compute tightness as span / haystack length
+                    let span = haystack.distance(from: firstMatchIndex!, to: lastMatchIndex!) + 1
+                    return Double(span) / max(Double(haystack.count), 1.0)
+                }
+                target = next
+            }
+            haystackIndex = haystack.index(after: haystackIndex)
+        }
+        return nil // not all characters matched
     }
 }
 
@@ -117,24 +231,44 @@ struct CommandPaletteView: View {
                             .buttonStyle(.plain)
                         }
                         Text("esc")
-                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .font(Typo.footnoteMono)
                             .foregroundColor(DS.textTertiary)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 3)
                             .background(
                                 RoundedRectangle(cornerRadius: Radius.sm)
-                                    .fill(DS.bgHover)
+                                    .fill(DS.bgElevated)
                             )
                     }
                     .padding(.horizontal, Spacing.xl)
                     .padding(.vertical, Spacing.md)
+                    .background(DS.bgSurface)
 
-                    Divider().opacity(0.2)
+                    Divider()
+                        .overlay(DS.borderMedium)
 
                     // Results
                     ScrollViewReader { proxy in
                         ScrollView {
                             LazyVStack(spacing: 0) {
+                                // Recent section (only when query is empty)
+                                let recents = state.recentActions
+                                if !recents.isEmpty {
+                                    PaletteSectionHeader(title: "Recent")
+                                    ForEach(Array(recents.enumerated()), id: \.element.id) { index, action in
+                                        PaletteRow(
+                                            action: action,
+                                            isSelected: index == state.selectedIndex
+                                        )
+                                        .id(action.id)
+                                        .onTapGesture {
+                                            state.selectedIndex = index
+                                            state.confirm()
+                                        }
+                                    }
+                                }
+
+                                // Main results
                                 let items = state.filteredActions
                                 ForEach(Array(items.enumerated()), id: \.element.id) { index, action in
                                     // Category header (show when category changes and query is empty)
@@ -196,11 +330,14 @@ struct CommandPaletteView: View {
     private func keyHint(_ key: String, label: String) -> some View {
         HStack(spacing: Spacing.xs) {
             Text(key)
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .font(Typo.footnoteMono)
                 .foregroundColor(DS.textTertiary)
                 .padding(.horizontal, 5)
                 .padding(.vertical, 2)
-                .background(RoundedRectangle(cornerRadius: 3).fill(DS.bgHover))
+                .background(
+                    RoundedRectangle(cornerRadius: Radius.sm)
+                        .fill(DS.bgElevated)
+                )
             Text(label)
                 .font(Typo.footnote)
                 .foregroundColor(DS.textTertiary)
@@ -214,7 +351,8 @@ private struct PaletteSectionHeader: View {
     var body: some View {
         HStack(spacing: Spacing.sm) {
             Text(title.uppercased())
-                .font(.system(size: 9, weight: .semibold, design: .default))
+                .font(Typo.caption)
+                .fontWeight(.semibold)
                 .foregroundColor(DS.textTertiary)
                 .tracking(0.8)
             Rectangle()
@@ -222,7 +360,7 @@ private struct PaletteSectionHeader: View {
                 .frame(height: 1)
         }
         .padding(.horizontal, Spacing.xl)
-        .padding(.top, Spacing.md)
+        .padding(.top, Spacing.sm)
         .padding(.bottom, Spacing.xs)
     }
 }
@@ -235,19 +373,17 @@ private struct PaletteRow: View {
 
     var body: some View {
         HStack(spacing: Spacing.md) {
-            ZStack {
-                Image(systemName: action.icon)
-                    .font(Typo.callout)
-                    .foregroundColor(isSelected ? DS.textPrimary : DS.textTertiary)
-                    .frame(width: 20)
-
-                if let color = action.stateColor {
-                    Circle()
-                        .fill(color)
-                        .frame(width: 6, height: 6)
-                        .offset(x: 8, y: -6)
-                }
+            // State color dot — prominent, inline before icon
+            if let color = action.stateColor {
+                Circle()
+                    .fill(color)
+                    .frame(width: 8, height: 8)
             }
+
+            Image(systemName: action.icon)
+                .font(Typo.callout)
+                .foregroundColor(isSelected ? DS.textPrimary : DS.textTertiary)
+                .frame(width: 20)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(action.title)
@@ -286,7 +422,8 @@ private struct PaletteRow: View {
     @ViewBuilder
     private func togglePill(isOn: Bool) -> some View {
         Text(isOn ? "ON" : "OFF")
-            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+            .font(Typo.captionMono)
+            .fontWeight(.semibold)
             .foregroundColor(isOn ? DS.textPrimary : DS.textTertiary)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
@@ -298,13 +435,13 @@ private struct PaletteRow: View {
     @ViewBuilder
     private func shortcutBadge(_ shortcut: String) -> some View {
         Text(shortcut)
-            .font(.system(size: 10, weight: .medium, design: .monospaced))
+            .font(Typo.footnoteMono)
             .foregroundColor(DS.textTertiary)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(DS.bgHover)
+                RoundedRectangle(cornerRadius: Radius.sm)
+                    .fill(DS.bgElevated)
             )
     }
 }

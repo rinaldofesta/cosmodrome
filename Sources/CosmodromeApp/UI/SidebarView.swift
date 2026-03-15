@@ -98,7 +98,7 @@ struct SidebarView: View {
                                 }
                                 .padding(.leading, 20)
                                 .padding(.trailing, Spacing.sm)
-                                .padding(.vertical, 1)
+                                .padding(.vertical, Spacing.xs)
                                 .transition(.opacity.combined(with: .move(edge: .top)))
                             }
                         }
@@ -223,68 +223,76 @@ private struct ProjectRow: View {
     @State private var showColorPicker = false
 
     var body: some View {
-        HStack(spacing: Spacing.sm) {
-            Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                .font(.system(size: 8, weight: .semibold))
-                .foregroundColor(DS.textTertiary)
-                .frame(width: 10)
+        VStack(alignment: .leading, spacing: 2) {
+            // Top line: chevron + color dot + name + session count + add button
+            HStack(spacing: Spacing.sm) {
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundColor(DS.textTertiary)
+                    .frame(width: 10)
 
-            Circle()
-                .fill(Color(hex: project.color) ?? .blue)
-                .frame(width: 8, height: 8)
-                .onTapGesture { showColorPicker.toggle() }
-                .popover(isPresented: $showColorPicker, arrowEdge: .trailing) {
-                    colorPickerPopover
+                Circle()
+                    .fill(Color(hex: project.color) ?? .blue)
+                    .frame(width: 8, height: 8)
+                    .onTapGesture { showColorPicker.toggle() }
+                    .popover(isPresented: $showColorPicker, arrowEdge: .trailing) {
+                        colorPickerPopover
+                    }
+
+                if isEditing {
+                    AutoSelectTextField(text: $editName, onCommit: commitRename)
+                        .font(Typo.subheading)
+                        .foregroundColor(DS.textPrimary)
+                        .padding(.horizontal, Spacing.sm)
+                        .padding(.vertical, 2)
+                        .background(DS.bgHover)
+                        .cornerRadius(Radius.sm)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: Radius.sm)
+                                .stroke(DS.borderFocus, lineWidth: 1)
+                        )
+                        .onExitCommand { cancelRename() }
+                } else {
+                    Text(project.name)
+                        .font(Typo.subheading)
+                        .foregroundColor(isSelected ? DS.textPrimary : DS.textSecondary)
+                        .lineLimit(1)
                 }
 
-            if isEditing {
-                AutoSelectTextField(text: $editName, onCommit: commitRename)
-                    .font(Typo.subheading)
-                    .foregroundColor(DS.textPrimary)
-                    .padding(.horizontal, Spacing.sm)
-                    .padding(.vertical, 2)
-                    .background(DS.bgHover)
-                    .cornerRadius(Radius.sm)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Radius.sm)
-                            .stroke(DS.borderFocus, lineWidth: 1)
-                    )
-                    .onExitCommand { cancelRename() }
-            } else {
-                Text(project.name)
-                    .font(Typo.subheading)
-                    .foregroundColor(isSelected ? DS.textPrimary : DS.textSecondary)
+                Spacer()
+
+                Text(sessionCountLabel)
+                    .font(Typo.caption)
+                    .foregroundColor(DS.textTertiary)
+
+                if project.attentionCount > 0 {
+                    Text("\(project.attentionCount)")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(DS.stateError))
+                }
+
+                if isSelected || isHovered {
+                    Button(action: onNewSession) {
+                        Image(systemName: "plus")
+                            .font(Typo.body)
+                            .foregroundColor(DS.textTertiary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("New Session")
+                    .transition(.opacity)
+                }
+            }
+
+            // Summary line: agent state breakdown (only when there are agent sessions)
+            if !agentStateSummary.isEmpty {
+                Text(agentStateSummary)
+                    .font(Typo.caption)
+                    .foregroundColor(DS.textTertiary)
                     .lineLimit(1)
-            }
-
-            Spacer()
-
-            Text("\(project.sessions.count)")
-                .font(Typo.captionMono)
-                .foregroundColor(DS.textSecondary)
-
-            if project.aggregateState != .inactive {
-                agentStateIndicator(project.aggregateState)
-            }
-
-            if project.attentionCount > 0 {
-                Text("\(project.attentionCount)")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 1)
-                    .background(Capsule().fill(DS.stateError))
-            }
-
-            if isSelected || isHovered {
-                Button(action: onNewSession) {
-                    Image(systemName: "plus")
-                        .font(Typo.body)
-                        .foregroundColor(DS.textTertiary)
-                }
-                .buttonStyle(.plain)
-                .help("New Session")
-                .transition(.opacity)
+                    .padding(.leading, 26) // align with project name (chevron 10 + spacing 8 + dot 8)
             }
         }
         .padding(.horizontal, Spacing.sm)
@@ -309,7 +317,7 @@ private struct ProjectRow: View {
             Divider()
             Button("New Shell Session") { onNewSession() }
             Divider()
-            Button("Delete Project", role: .destructive) { onDelete() }
+            Button("Close Project", role: .destructive) { onDelete() }
         }
     }
 
@@ -343,6 +351,26 @@ private struct ProjectRow: View {
         .frame(width: 140)
     }
 
+    /// "N sessions" / "1 session"
+    private var sessionCountLabel: String {
+        let count = project.sessions.count
+        return count == 1 ? "1 session" : "\(count) sessions"
+    }
+
+    /// Agent state breakdown, e.g. "1 working · 1 needs input"
+    private var agentStateSummary: String {
+        let counts = project.agentCounts
+        var parts: [String] = []
+        if counts.working > 0 { parts.append("\(counts.working) working") }
+        if counts.needsInput > 0 { parts.append("\(counts.needsInput) needs input") }
+        if counts.error > 0 { parts.append("\(counts.error) error") }
+        if counts.idle > 0 && parts.isEmpty {
+            // Only show idle if no active states to report
+            parts.append("\(counts.idle) idle")
+        }
+        return parts.joined(separator: " \u{00B7} ")
+    }
+
     private func startRename() {
         editName = project.name
         isEditing = true
@@ -357,13 +385,6 @@ private struct ProjectRow: View {
 
     private func cancelRename() {
         isEditing = false
-    }
-
-    @ViewBuilder
-    private func agentStateIndicator(_ state: AgentState) -> some View {
-        Circle()
-            .fill(DS.stateColor(for: state))
-            .frame(width: 6, height: 6)
     }
 }
 

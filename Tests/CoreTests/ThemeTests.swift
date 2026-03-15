@@ -8,7 +8,7 @@ final class ThemeTests: XCTestCase {
         let theme = Theme.dark
         XCTAssertEqual(theme.name, "Dark")
         XCTAssertEqual(theme.colors.foreground, "#D9D9D9")
-        XCTAssertEqual(theme.colors.background, "#1A1A1F")
+        XCTAssertEqual(theme.colors.background, "#1A1A1C")
         XCTAssertEqual(theme.colors.ansiArray.count, 16)
     }
 

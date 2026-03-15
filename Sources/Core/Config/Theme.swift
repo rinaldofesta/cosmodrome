@@ -15,7 +15,7 @@ public struct Theme: Codable {
         name: "Dark",
         colors: ThemeColors(
             foreground: "#D9D9D9",
-            background: "#1A1A1F",
+            background: "#1A1A1C",
             cursor: "#D9D9D9",
             selection: "#3A3A4A",
             black: "#000000", red: "#CC3333", green: "#33CC33", yellow: "#CCCC33",

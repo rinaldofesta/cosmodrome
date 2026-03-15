@@ -38,6 +38,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Intercept key events for global keybindings (terminal mode only)
         if !dashboardMode {
             NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                // Track all key events as user interaction for notification idle threshold
+                AgentNotifications.lastInteractionTime = Date()
                 if self?.windowController?.handleKeyEvent(event) == true {
                     return nil
                 }
