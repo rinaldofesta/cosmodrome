@@ -8,6 +8,11 @@ import Foundation
 /// it adds the judgment "this needs your attention" to the raw data "error".
 public enum StuckDetector {
 
+    /// Category of stuck loop.
+    public enum StuckKind: String {
+        case compile, test, permission, timeout, unknown
+    }
+
     /// Result of stuck detection.
     public struct StuckInfo {
         /// How many times the error pattern repeated.
@@ -18,6 +23,8 @@ public enum StuckDetector {
         public let pattern: String?
         /// True if this stuck was predicted from historical patterns before reaching 3 retries.
         public let predictedFromHistory: Bool
+        /// Category of the stuck loop.
+        public let kind: StuckKind
 
         public init(retryCount: Int, duration: TimeInterval, pattern: String?,
                     predictedFromHistory: Bool = false) {
@@ -25,6 +32,16 @@ public enum StuckDetector {
             self.duration = duration
             self.pattern = pattern
             self.predictedFromHistory = predictedFromHistory
+            self.kind = Self.classifyPattern(pattern)
+        }
+
+        private static func classifyPattern(_ p: String?) -> StuckKind {
+            guard let p = p?.lowercased() else { return .unknown }
+            if p.contains("compile") || p.contains("build") { return .compile }
+            if p.contains("test") { return .test }
+            if p.contains("permission") || p.contains("denied") { return .permission }
+            if p.contains("timeout") { return .timeout }
+            return .unknown
         }
     }
 

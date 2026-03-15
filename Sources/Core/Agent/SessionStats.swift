@@ -85,6 +85,13 @@ public final class SessionStats {
         Date().timeIntervalSince(sessionStartedAt)
     }
 
+    /// Cost per minute (nil if uptime < 60s or no cost).
+    public var costPerMinute: Double? {
+        let up = uptime
+        guard up >= 60, totalCost > 0 else { return nil }
+        return totalCost / (up / 60.0)
+    }
+
     // MARK: - Mutations (called from I/O thread)
 
     /// Record a cost update (parsed from agent status line).

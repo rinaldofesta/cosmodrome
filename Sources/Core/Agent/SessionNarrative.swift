@@ -14,6 +14,19 @@ public struct SessionNarrative {
         public let detail: String?
         /// Whether this state warrants user attention.
         public let needsAttention: Bool
+        /// Urgency scoring for priority sorting.
+        public let urgency: UrgencyScorer.Urgency?
+        /// Interpretation context (e.g. task classification).
+        public let interpretation: String?
+
+        public init(headline: String, detail: String? = nil, needsAttention: Bool,
+                    urgency: UrgencyScorer.Urgency? = nil, interpretation: String? = nil) {
+            self.headline = headline
+            self.detail = detail
+            self.needsAttention = needsAttention
+            self.urgency = urgency
+            self.interpretation = interpretation
+        }
     }
 
     // MARK: - Public API
@@ -32,7 +45,8 @@ public struct SessionNarrative {
         stats: SessionStats,
         taskStartedAt: Date?,
         stuckInfo: StuckDetector.StuckInfo?,
-        promptContext: String? = nil
+        promptContext: String? = nil,
+        stateEnteredAt: Date? = nil
     ) -> Summary {
         if let stuckInfo {
             return summarizeStuck(stuckInfo: stuckInfo, stats: stats)
