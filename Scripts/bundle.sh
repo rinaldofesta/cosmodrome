@@ -66,6 +66,16 @@ cat > "$CONTENTS/Info.plist" << 'PLIST'
 </plist>
 PLIST
 
+# Copy theme files
+if [ -d "$PROJ_DIR/Resources/Themes" ]; then
+    cp -r "$PROJ_DIR/Resources/Themes" "$RESOURCES/Themes"
+fi
+
+# Copy default config
+if [ -f "$PROJ_DIR/Resources/DefaultConfig.yml" ]; then
+    cp "$PROJ_DIR/Resources/DefaultConfig.yml" "$RESOURCES/DefaultConfig.yml"
+fi
+
 # Generate .icns from master icon (Resources/AppIcon_1024.png)
 MASTER_ICON="$PROJ_DIR/Resources/AppIcon_1024.png"
 ICONSET_DIR="$PROJ_DIR/build/AppIcon.iconset"

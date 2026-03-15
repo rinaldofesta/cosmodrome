@@ -45,123 +45,127 @@ enum Typo {
     static let largeTitle = Font.system(size: 15, weight: .medium)
 }
 
-// MARK: - Colors (Semantic, appearance-adaptive)
+// MARK: - Theme State (shared mutable theme colors)
 
-/// Helper to create an NSColor that automatically switches between dark and light variants
-/// based on the current NSAppearance (set by window.appearance).
-private func adaptive(dark: NSColor, light: NSColor) -> Color {
-    Color(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
-        let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        return isDark ? dark : light
-    }))
+/// Holds the current theme's resolved colors for use by the design system.
+/// Updated by MainWindowController when a theme is applied.
+@Observable
+final class ThemeState {
+    static let shared = ThemeState()
+
+    var background: NSColor = NSColor(red: 0.10, green: 0.10, blue: 0.12, alpha: 1)
+    var foreground: NSColor = NSColor.white
+    var isDark: Bool = true
+
+    func apply(_ theme: Theme) {
+        if let bg = parseHexColor(theme.colors.background) {
+            background = NSColor(red: CGFloat(bg.r), green: CGFloat(bg.g), blue: CGFloat(bg.b), alpha: 1)
+            isDark = !isLightBackground(r: bg.r, g: bg.g, b: bg.b)
+        }
+        if let fg = parseHexColor(theme.colors.foreground) {
+            foreground = NSColor(red: CGFloat(fg.r), green: CGFloat(fg.g), blue: CGFloat(fg.b), alpha: 1)
+        }
+    }
+
+    /// Sidebar background: slightly darker/lighter than the main background.
+    var sidebarBg: NSColor {
+        isDark ? background.blended(withFraction: 0.3, of: .black) ?? background
+               : background.blended(withFraction: 0.06, of: .black) ?? background
+    }
+
+    /// Elevated surface: slightly lighter/darker than main background.
+    var elevatedBg: NSColor {
+        isDark ? background.blended(withFraction: 0.15, of: .white) ?? background
+               : background.blended(withFraction: 0.08, of: .white) ?? background
+    }
+
+    /// Surface: between primary and elevated.
+    var surfaceBg: NSColor {
+        isDark ? background.blended(withFraction: 0.2, of: .white) ?? background
+               : background.blended(withFraction: 0.04, of: .white) ?? background
+    }
 }
 
-// MARK: - Design System Tokens
+// MARK: - Colors (Semantic, theme-aware)
 
 enum DS {
+    // Theme-derived backgrounds
+    static var bgPrimary: Color {
+        Color(nsColor: ThemeState.shared.background)
+    }
+    static var bgTerminal: Color { bgPrimary }
+    static var bgSidebar: Color {
+        Color(nsColor: ThemeState.shared.sidebarBg)
+    }
+    static var bgElevated: Color {
+        Color(nsColor: ThemeState.shared.elevatedBg)
+    }
+    static var bgSurface: Color {
+        Color(nsColor: ThemeState.shared.surfaceBg)
+    }
 
-    // MARK: Backgrounds (darkest → lightest)
-    //
-    // --bg-base:       #1A1A1C   Base window + terminal background
-    // --bg-surface-1:  #222224   Sidebar, panels
-    // --bg-surface-2:  #2A2A2D   Cards, elevated elements
-    // --bg-surface-3:  #333336   Hover states, active elements
+    // Interactive backgrounds (overlay-based, work on any theme)
+    static var bgHover: Color {
+        ThemeState.shared.isDark
+            ? Color.white.opacity(0.06)
+            : Color.black.opacity(0.04)
+    }
+    static var bgSelected: Color {
+        ThemeState.shared.isDark
+            ? Color.white.opacity(0.10)
+            : Color.black.opacity(0.08)
+    }
+    static var bgPressed: Color {
+        ThemeState.shared.isDark
+            ? Color.white.opacity(0.14)
+            : Color.black.opacity(0.12)
+    }
 
-    static let bgPrimary = adaptive(
-        dark: NSColor(red: 0.102, green: 0.102, blue: 0.110, alpha: 1),   // #1A1A1C
-        light: NSColor(red: 0.96, green: 0.96, blue: 0.97, alpha: 1)
-    )
-    static let bgTerminal = bgPrimary  // Terminal bg matches base
+    // Text (derived from theme foreground)
+    static var textPrimary: Color {
+        Color(nsColor: ThemeState.shared.foreground.withAlphaComponent(0.92))
+    }
+    static var textSecondary: Color {
+        Color(nsColor: ThemeState.shared.foreground.withAlphaComponent(0.60))
+    }
+    static var textTertiary: Color {
+        Color(nsColor: ThemeState.shared.foreground.withAlphaComponent(0.40))
+    }
+    static var textInverse: Color {
+        Color(nsColor: ThemeState.shared.isDark ? .black : .white)
+    }
 
-    static let bgSidebar = adaptive(
-        dark: NSColor(red: 0.133, green: 0.133, blue: 0.141, alpha: 1),   // #222224
-        light: NSColor(red: 0.93, green: 0.93, blue: 0.94, alpha: 1)
-    )
-
-    static let bgSurface = adaptive(
-        dark: NSColor(red: 0.165, green: 0.165, blue: 0.176, alpha: 1),   // #2A2A2D
-        light: NSColor(red: 0.98, green: 0.98, blue: 0.99, alpha: 1)
-    )
-
-    static let bgElevated = adaptive(
-        dark: NSColor(red: 0.200, green: 0.200, blue: 0.212, alpha: 1),   // #333336
-        light: NSColor(red: 1.0, green: 1.0, blue: 1.0, alpha: 1)
-    )
-
-    // Interactive backgrounds
-    static let bgHover = adaptive(
-        dark: NSColor.white.withAlphaComponent(0.06),
-        light: NSColor.black.withAlphaComponent(0.04)
-    )
-    static let bgSelected = adaptive(
-        dark: NSColor.white.withAlphaComponent(0.10),
-        light: NSColor.black.withAlphaComponent(0.08)
-    )
-    static let bgPressed = adaptive(
-        dark: NSColor.white.withAlphaComponent(0.14),
-        light: NSColor.black.withAlphaComponent(0.12)
-    )
-
-    // MARK: Text
-    //
-    // --text-primary:    #E8E8E8   Not pure white — too harsh
-    // --text-secondary:  #999999   Labels, secondary info
-    // --text-tertiary:   #737373   Hints, timestamps (bumped from #666 for WCAG AA)
-
-    static let textPrimary = adaptive(
-        dark: NSColor(red: 0.910, green: 0.910, blue: 0.910, alpha: 1),   // #E8E8E8
-        light: NSColor.black.withAlphaComponent(0.88)
-    )
-    static let textSecondary = adaptive(
-        dark: NSColor(red: 0.600, green: 0.600, blue: 0.600, alpha: 1),   // #999999
-        light: NSColor.black.withAlphaComponent(0.55)
-    )
-    static let textTertiary = adaptive(
-        dark: NSColor(red: 0.451, green: 0.451, blue: 0.451, alpha: 1),   // #737373 (WCAG AA: 4.5:1)
-        light: NSColor.black.withAlphaComponent(0.35)
-    )
-    static let textInverse = adaptive(
-        dark: NSColor(red: 0.102, green: 0.102, blue: 0.110, alpha: 1),   // #1A1A1C
-        light: NSColor.white
-    )
-
-    // MARK: Borders
-    //
-    // --border-subtle:   white 6%    Barely visible boundaries
-    // --border-default:  white 10%   Standard borders
-    // --border-active:   white 20%   Focused/active elements
-
-    static let borderSubtle = adaptive(
-        dark: NSColor.white.withAlphaComponent(0.06),
-        light: NSColor.black.withAlphaComponent(0.06)
-    )
-    static let borderMedium = adaptive(
-        dark: NSColor.white.withAlphaComponent(0.10),
-        light: NSColor.black.withAlphaComponent(0.10)
-    )
-    static let borderStrong = adaptive(
-        dark: NSColor.white.withAlphaComponent(0.20),
-        light: NSColor.black.withAlphaComponent(0.18)
-    )
+    // Borders
+    static var borderSubtle: Color {
+        Color(nsColor: ThemeState.shared.foreground.withAlphaComponent(0.06))
+    }
+    static var borderMedium: Color {
+        Color(nsColor: ThemeState.shared.foreground.withAlphaComponent(0.12))
+    }
+    static var borderStrong: Color {
+        Color(nsColor: ThemeState.shared.foreground.withAlphaComponent(0.20))
+    }
     static let borderFocus = Color.accentColor.opacity(0.6)
 
-    // MARK: Agent State Colors (Apple system colors adapted for dark mode)
-    //
-    // These are the most important colors in the app.
-    // Same in both modes — high-contrast, color-blind accessible with shape pairing.
-    //
-    // --state-working:  #34C759   Green — alive, not neon
-    // --state-input:    #FFD60A   Amber — warm, urgent
-    // --state-error:    #FF453A   Red — clear, not aggressive
-    // --state-idle:     #737373   Gray — neutral, recedes
-
-    static let stateWorking = Color(red: 0.204, green: 0.780, blue: 0.349)       // #34C759
-    static let stateNeedsInput = Color(red: 1.000, green: 0.839, blue: 0.039)    // #FFD60A
-    static let stateError = Color(red: 1.000, green: 0.271, blue: 0.227)         // #FF453A
-    static let stateInactive = adaptive(
-        dark: NSColor(red: 0.451, green: 0.451, blue: 0.451, alpha: 1),          // #737373
-        light: NSColor.black.withAlphaComponent(0.25)
-    )
+    // Agent state colors — adapt for light/dark theme visibility
+    static var stateWorking: Color {
+        ThemeState.shared.isDark
+            ? Color(red: 0.204, green: 0.780, blue: 0.349)    // #34C759
+            : Color(red: 0.13, green: 0.60, blue: 0.25)
+    }
+    static var stateNeedsInput: Color {
+        ThemeState.shared.isDark
+            ? Color(red: 1.000, green: 0.839, blue: 0.039)    // #FFD60A
+            : Color(red: 0.80, green: 0.52, blue: 0.0)
+    }
+    static var stateError: Color {
+        ThemeState.shared.isDark
+            ? Color(red: 1.000, green: 0.271, blue: 0.227)    // #FF453A
+            : Color(red: 0.85, green: 0.18, blue: 0.18)
+    }
+    static var stateInactive: Color {
+        Color(nsColor: ThemeState.shared.foreground.withAlphaComponent(0.30))
+    }
 
     // Dimmed state colors (20% opacity) for background tints on cards/borders
     static let stateWorkingDim = Color(red: 0.204, green: 0.780, blue: 0.349).opacity(0.20)

@@ -107,6 +107,11 @@ public struct ThemeColors: Codable {
     }
 }
 
+/// Determine if a color is perceptually light using ITU-R BT.601 luminance.
+public func isLightBackground(r: Float, g: Float, b: Float) -> Bool {
+    r * 0.299 + g * 0.587 + b * 0.114 > 0.5
+}
+
 /// Parse a hex color string to (r, g, b) floats in 0...1.
 public func parseHexColor(_ hex: String) -> (r: Float, g: Float, b: Float)? {
     var h = hex.trimmingCharacters(in: .whitespacesAndNewlines)
