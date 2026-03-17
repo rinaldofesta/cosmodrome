@@ -402,7 +402,7 @@ final class TerminalContentView: NSView {
             }
 
             CATransaction.begin()
-            CATransaction.setAnimationDuration(0.15)
+            CATransaction.setAnimationDuration(0.2)
             borderLayer.frame = cellFrame
             borderLayer.cornerRadius = cellCornerRadius
             borderLayer.masksToBounds = true
@@ -437,30 +437,30 @@ final class TerminalContentView: NSView {
             CATransaction.commit()
 
             // --- Dim overlay for unfocused sessions ---
-            if isGrid && !isFocused {
-                let dimLayer: CALayer
-                if let existing = sessionDimLayers[entry.sessionId] {
-                    dimLayer = existing
-                } else {
-                    dimLayer = CALayer()
-                    dimLayer.zPosition = 8  // Below border (10) but above terminal content
-                    layer.addSublayer(dimLayer)
-                    sessionDimLayers[entry.sessionId] = dimLayer
-                }
-                CATransaction.begin()
-                CATransaction.setAnimationDuration(0.15)
-                dimLayer.frame = cellFrame
-                dimLayer.cornerRadius = cellCornerRadius
-                dimLayer.masksToBounds = true
-                // 15% black overlay dims content to ~85% brightness
-                dimLayer.backgroundColor = NSColor.black.withAlphaComponent(0.15).cgColor
-                dimLayer.isHidden = false
-                CATransaction.commit()
+            let dimLayer: CALayer
+            if let existing = sessionDimLayers[entry.sessionId] {
+                dimLayer = existing
             } else {
-                if let dimLayer = sessionDimLayers[entry.sessionId] {
-                    dimLayer.isHidden = true
-                }
+                dimLayer = CALayer()
+                dimLayer.zPosition = 8  // Below border (10) but above terminal content
+                dimLayer.opacity = 0.0
+                layer.addSublayer(dimLayer)
+                sessionDimLayers[entry.sessionId] = dimLayer
             }
+
+            CATransaction.begin()
+            CATransaction.setAnimationDuration(0.2)
+            dimLayer.frame = cellFrame
+            dimLayer.cornerRadius = cellCornerRadius
+            dimLayer.masksToBounds = true
+            dimLayer.backgroundColor = NSColor.black.cgColor
+
+            if isGrid && !isFocused {
+                dimLayer.opacity = 0.15
+            } else {
+                dimLayer.opacity = 0.0
+            }
+            CATransaction.commit()
 
             // --- Session Header Bar (grid mode, 2+ sessions) ---
             if isGrid, let session {
