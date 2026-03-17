@@ -62,7 +62,7 @@ struct ModeIndicatorView: View {
                 .font(.system(size: 9, weight: .semibold, design: .monospaced))
                 .foregroundColor(DS.textSecondary)
             Text(label)
-                .font(.system(size: 9))
+                .font(Typo.caption)
                 .foregroundColor(DS.textTertiary)
         }
     }

@@ -181,7 +181,7 @@ private struct SidebarToolbarButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 11))
+                .font(Typo.body)
                 .foregroundColor(isHovered ? DS.textPrimary : DS.textTertiary)
                 .frame(width: 26, height: 22)
         }
@@ -268,7 +268,7 @@ private struct ProjectRow: View {
                 if project.attentionCount > 0 {
                     Text("\(project.attentionCount)")
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.white)
+                        .foregroundColor(DS.textInverse)
                         .padding(.horizontal, 5)
                         .padding(.vertical, 1)
                         .background(Capsule().fill(DS.stateError))
@@ -338,7 +338,7 @@ private struct ProjectRow: View {
                             Circle()
                                 .stroke(Color.white, lineWidth: isCurrentColor ? 2 : 0)
                         )
-                        .shadow(color: .black.opacity(0.2), radius: 1, y: 1)
+                        .shadow(color: DS.shadowLight, radius: 1, y: 1)
                         .onTapGesture {
                             project.color = preset.hex
                             showColorPicker = false

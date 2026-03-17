@@ -80,7 +80,7 @@ struct AgentStatusBarView: View {
     private func fleetIndicator(symbol: String, count: Int, color: Color) -> some View {
         HStack(spacing: 2) {
             Text(symbol)
-                .font(.system(size: 9))
+                .font(Typo.caption)
             Text("\(count)")
                 .font(Typo.footnoteMono)
         }
@@ -230,7 +230,7 @@ private struct StatusBarButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 10))
+                .font(Typo.footnote)
                 .foregroundColor(isHovered ? DS.textPrimary : DS.textTertiary)
         }
         .buttonStyle(.plain)

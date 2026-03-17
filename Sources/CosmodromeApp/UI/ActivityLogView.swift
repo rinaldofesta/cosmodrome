@@ -226,7 +226,7 @@ struct ActivityLogView: View {
                 if summary.filesChanged > 0 {
                     HStack(spacing: Spacing.xs) {
                         Image(systemName: "doc.fill")
-                            .font(.system(size: 9))
+                            .font(Typo.caption)
                             .foregroundColor(DS.brand)
                         Text("\(summary.filesChanged) \(summary.filesChanged == 1 ? "file" : "files") changed")
                             .font(Typo.body)
@@ -288,7 +288,7 @@ struct ActivityLogView: View {
     private var compactHeader: some View {
         HStack(spacing: Spacing.sm) {
             Image(systemName: "list.bullet.rectangle.portrait")
-                .font(.system(size: 11))
+                .font(Typo.body)
                 .foregroundColor(DS.accent)
             Text("Activity")
                 .font(Typo.subheadingMedium)
@@ -371,7 +371,7 @@ struct ActivityLogView: View {
 
             Button(action: onDismiss) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(Typo.bodyMedium)
                     .foregroundColor(DS.textSecondary)
                     .frame(width: 22, height: 22)
                     .background(DS.bgHover)
@@ -455,7 +455,7 @@ struct ActivityLogView: View {
     private func summaryStat(icon: String, value: String, label: String, color: Color) -> some View {
         HStack(spacing: Spacing.xs) {
             Image(systemName: icon)
-                .font(.system(size: 10))
+                .font(Typo.footnote)
                 .foregroundColor(color)
             Text(value)
                 .font(Typo.subheadingMedium)
@@ -485,7 +485,7 @@ struct ActivityLogView: View {
             }) {
                 HStack(spacing: 2) {
                     Image(systemName: expandedSessions.count == sessionEntries.count ? "rectangle.compress.vertical" : "rectangle.expand.vertical")
-                        .font(.system(size: 9))
+                        .font(Typo.caption)
                     Text(expandedSessions.count == sessionEntries.count ? "Collapse All" : "Expand All")
                         .font(Typo.body)
                 }
@@ -790,7 +790,7 @@ private struct SessionSection: View {
     }
 
     private var compactHeaderContent: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Spacing.xs) {
             Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
                 .font(.system(size: 8, weight: .semibold))
                 .foregroundColor(DS.textTertiary)
@@ -812,7 +812,7 @@ private struct SessionSection: View {
                 .foregroundColor(DS.textTertiary)
         }
         .padding(.horizontal, Spacing.sm)
-        .padding(.vertical, 4)
+        .padding(.vertical, Spacing.xs)
         .contentShape(Rectangle())
     }
 
@@ -889,7 +889,7 @@ private struct SessionSection: View {
             if isHovered {
                 Button(action: onFocus) {
                     Image(systemName: "arrow.up.forward.app")
-                        .font(.system(size: 10))
+                        .font(Typo.footnote)
                         .foregroundColor(DS.accent)
                 }
                 .buttonStyle(.plain)

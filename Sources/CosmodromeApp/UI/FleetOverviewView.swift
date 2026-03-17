@@ -105,7 +105,7 @@ struct FleetOverviewView: View {
             // Close button
             Button(action: onDismiss) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(Typo.bodyMedium)
                     .foregroundColor(DS.textSecondary)
                     .frame(width: 22, height: 22)
                     .background(DS.bgHover)

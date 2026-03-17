@@ -74,7 +74,7 @@ struct SessionThumbnailView: View {
             }
             .padding(.horizontal, Spacing.md)
             .padding(.top, Spacing.md)
-            .padding(.bottom, 4)
+            .padding(.bottom, Spacing.xs)
 
             // Row 2: Subtitle — agent + model + context percentage (consolidated)
             HStack(spacing: Spacing.xs) {
@@ -120,7 +120,7 @@ struct SessionThumbnailView: View {
                 Spacer()
             }
             .padding(.horizontal, Spacing.md)
-            .padding(.bottom, 4)
+            .padding(.bottom, Spacing.xs)
 
             // Row 3: State badge — prominent, colored
             if session.isAgent {
@@ -171,7 +171,7 @@ struct SessionThumbnailView: View {
                     }
                 }
                 .padding(.horizontal, Spacing.md)
-                .padding(.bottom, 4)
+                .padding(.bottom, Spacing.xs)
             } else if session.exitedUnexpectedly {
                 HStack(spacing: Spacing.xs) {
                     Label("exited", systemImage: "exclamationmark.triangle.fill")
@@ -180,7 +180,7 @@ struct SessionThumbnailView: View {
                     Spacer()
                 }
                 .padding(.horizontal, Spacing.md)
-                .padding(.bottom, 4)
+                .padding(.bottom, Spacing.xs)
             }
 
             // Row 4: Narrative — show interpretation when available, else headline
@@ -190,7 +190,7 @@ struct SessionThumbnailView: View {
                     .foregroundColor(narrativeColor)
                     .lineLimit(2)
                     .padding(.horizontal, Spacing.md)
-                    .padding(.bottom, 4)
+                    .padding(.bottom, Spacing.xs)
             }
 
             // Row 5: Detected ports

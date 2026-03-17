@@ -425,7 +425,7 @@ private struct PaletteRow: View {
             .font(Typo.captionMono)
             .fontWeight(.semibold)
             .foregroundColor(isOn ? DS.textPrimary : DS.textTertiary)
-            .padding(.horizontal, 8)
+            .padding(.horizontal, Spacing.sm)
             .padding(.vertical, 3)
             .background(
                 Capsule().fill(isOn ? DS.accentSubtle : DS.bgHover)
