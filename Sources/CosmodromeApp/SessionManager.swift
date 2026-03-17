@@ -28,6 +28,8 @@ final class SessionManager {
     private var lastStateScan: [UUID: Date] = [:]
     /// Throttle for narrative updates.
     private var lastNarrativeUpdate: [UUID: Date] = [:]
+    /// Reentrancy guard. Safe as a plain Bool because reloadConfig is main-queue-only.
+    private var isReloading = false
     /// Lock for dicts accessed from both I/O and main threads.
     private let stateLock = NSLock()
 
@@ -458,9 +460,70 @@ final class SessionManager {
             do {
                 try startSession(session)
             } catch {
-                FileHandle.standardError.write("[Cosmodrome] Failed to start session '\(session.name)': \(error)\n".data(using: .utf8)!)
+                FileHandle.standardError.write(Data("[Cosmodrome] Failed to start session '\(session.name)': \(error)\n".utf8))
             }
         }
+    }
+
+    /// Reload cosmodrome.yml and reconcile sessions for a project.
+    func reloadConfig(for project: Project) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard !isReloading else { return }
+        isReloading = true
+        defer { isReloading = false }
+
+        // Derive configPath from rootPath
+        guard let rootPath = project.rootPath else { return }
+        let configPath = (rootPath as NSString).appendingPathComponent("cosmodrome.yml")
+        guard FileManager.default.fileExists(atPath: configPath) else { return }
+
+        let config: ProjectConfig
+        let parser = ConfigParser()
+        do {
+            config = try parser.parseProjectConfig(at: configPath)
+        } catch {
+            FileHandle.standardError.write(Data("[Cosmodrome] Failed to parse config: \(error)\n".utf8))
+            return
+        }
+
+        let reconciler = ConfigReconciler()
+        let diff = reconciler.diff(config: config, currentSessions: project.sessions)
+
+        // ADDED: create session, append to project, start if autoStart
+        for sc in diff.added {
+            let session = parser.createSession(from: sc, rootPath: rootPath)
+            project.sessions.append(session)
+            if session.autoStart {
+                do { try startSession(session) } catch {
+                    FileHandle.standardError.write(Data("[Cosmodrome] Failed to start session '\(session.name)': \(error)\n".utf8))
+                }
+            }
+        }
+
+        // REMOVED: if running, set isOrphaned; if not running, remove from project
+        for session in diff.removed {
+            if session.isRunning {
+                session.isOrphaned = true
+            } else {
+                project.sessions.removeAll { $0.id == session.id }
+            }
+        }
+
+        // UPDATED: apply new config values to existing stopped session
+        for (session, sc) in diff.updated {
+            session.source = .config
+            session.command = sc.command
+            session.arguments = sc.args ?? []
+            session.cwd = sc.cwd ?? rootPath
+            session.environment = sc.env ?? [:]
+            session.autoStart = sc.autoStart ?? false
+            session.autoRestart = sc.autoRestart ?? false
+            session.restartDelay = sc.restartDelay ?? 1.0
+            session.isAgent = sc.agent ?? false
+            session.agentType = sc.agentType
+        }
+
+        onSessionListChanged?()
     }
 
     /// Write data to a session's PTY.
@@ -1237,12 +1300,14 @@ final class SessionManager {
         projectStore.projects.first { $0.sessions.contains { $0.id == session.id } }
     }
 
+    /// Called on the main queue when a PTY process exits (dispatched by PTYMultiplexer).
     private func handleSessionExit(_ session: Session) {
+        dispatchPrecondition(condition: .onQueue(.main))
+
         let wasRunning = session.isRunning
         session.isRunning = false
         session.agentState = .inactive
 
-        // Log session exit
         if let project = findProject(for: session) {
             project.activityLog.append(ActivityEvent(
                 timestamp: Date(),
@@ -1252,7 +1317,6 @@ final class SessionManager {
             ))
         }
 
-        // Persist session end with final stats
         if let eventStore {
             try? eventStore.recordSessionEnd(
                 sessionId: session.id,
@@ -1260,15 +1324,21 @@ final class SessionManager {
             )
         }
 
-        // Stop recording if active
         stateLock.lock()
         let recorder = recorders.removeValue(forKey: session.id)
         stateLock.unlock()
         recorder?.close()
 
-        // Mark unexpected exit (process died while it was running)
         if wasRunning {
             session.exitedUnexpectedly = true
+        }
+
+        if session.isOrphaned {
+            if let project = findProject(for: session) {
+                project.sessions.removeAll { $0.id == session.id }
+            }
+            onSessionListChanged?()
+            return
         }
 
         if session.autoRestart {
@@ -1278,9 +1348,6 @@ final class SessionManager {
             }
         }
 
-        // Rebuild session list so UI reflects the exit
-        DispatchQueue.main.async { [weak self] in
-            self?.onSessionListChanged?()
-        }
+        onSessionListChanged?()
     }
 }

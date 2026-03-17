@@ -1,6 +1,11 @@
 import Foundation
 import Observation
 
+public enum SessionSource: String, Codable, Sendable {
+    case config
+    case manual
+}
+
 @Observable
 public final class Session: Identifiable {
     public let id: UUID
@@ -27,6 +32,8 @@ public final class Session: Identifiable {
     @ObservationIgnored public var pid: pid_t = 0
     public var isRunning: Bool = false
     public var exitedUnexpectedly: Bool = false
+    public var isOrphaned: Bool = false
+    public var source: SessionSource = .manual
     @ObservationIgnored public var restartAttempts: Int = 0
     @ObservationIgnored public var taskStartedAt: Date?
     @ObservationIgnored public var filesChangedInTask: [String] = []

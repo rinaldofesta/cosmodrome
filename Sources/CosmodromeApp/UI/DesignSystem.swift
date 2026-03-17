@@ -166,6 +166,11 @@ enum DS {
     static var stateInactive: Color {
         Color(nsColor: ThemeState.shared.foreground.withAlphaComponent(0.30))
     }
+    static var stateOrphaned: Color {
+        ThemeState.shared.isDark
+            ? Color(red: 0.61, green: 0.35, blue: 0.71)       // Purple
+            : Color(red: 0.50, green: 0.25, blue: 0.60)
+    }
 
     // Dimmed state colors (20% opacity) for background tints on cards/borders
     static let stateWorkingDim = Color(red: 0.204, green: 0.780, blue: 0.349).opacity(0.20)

@@ -204,6 +204,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
                 },
                 onToggleCommandPalette: { [weak self] in
                     self?.showCommandPalette()
+                },
+                onReloadConfig: { [weak self] projectId in
+                    guard let self,
+                          let project = self.projectStore.projects.first(where: { $0.id == projectId }) else { return }
+                    self.sessionManager.reloadConfig(for: project)
+                    self.refreshTerminalView()
                 }
             )
         )

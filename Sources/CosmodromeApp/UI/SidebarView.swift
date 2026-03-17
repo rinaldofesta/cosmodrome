@@ -13,6 +13,7 @@ struct SidebarView: View {
     var onToggleActivityLog: () -> Void
     var onToggleFleetView: () -> Void
     var onToggleCommandPalette: () -> Void
+    var onReloadConfig: (UUID) -> Void
 
     @State private var expandedProjectIds: Set<UUID> = []
     @State private var didInitExpanded = false
@@ -62,7 +63,8 @@ struct SidebarView: View {
                                 }
                             },
                             onNewSession: { onNewSession(project.id) },
-                            onDelete: { onDeleteProject(project.id) }
+                            onDelete: { onDeleteProject(project.id) },
+                            onReloadConfig: { onReloadConfig(project.id) }
                         )
 
                         // Show session thumbnails for expanded projects
@@ -216,6 +218,7 @@ private struct ProjectRow: View {
     var onSelect: () -> Void
     var onNewSession: () -> Void
     var onDelete: () -> Void
+    var onReloadConfig: () -> Void
 
     @State private var isEditing = false
     @State private var editName = ""
@@ -316,6 +319,9 @@ private struct ProjectRow: View {
             Button("Change Color") { showColorPicker = true }
             Divider()
             Button("New Shell Session") { onNewSession() }
+            Button("Reload Config") {
+                onReloadConfig()
+            }
             Divider()
             Button("Close Project", role: .destructive) { onDelete() }
         }

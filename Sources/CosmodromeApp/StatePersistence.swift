@@ -59,7 +59,9 @@ enum StatePersistence {
                     cwd: session.cwd,
                     isAgent: session.isAgent ? true : nil,
                     agentType: session.agentType,
-                    scrollbackFile: scrollbackFile
+                    scrollbackFile: scrollbackFile,
+                    isOrphaned: session.isOrphaned ? true : nil,
+                    source: session.source != .manual ? session.source : nil
                 ))
             }
 
@@ -129,8 +131,11 @@ enum StatePersistence {
 
             if let sessionEntries = entry.sessions {
                 project.sessions = sessionEntries.compactMap { se in
+                    // Drop orphaned sessions — they only existed to let a running
+                    // process finish; after restart that process is gone.
+                    if se.isOrphaned == true { return nil }
                     guard let sid = UUID(uuidString: se.id) else { return nil }
-                    return Session(
+                    let s = Session(
                         id: sid,
                         name: se.name,
                         command: se.command,
@@ -139,6 +144,8 @@ enum StatePersistence {
                         isAgent: se.isAgent ?? false,
                         agentType: se.agentType
                     )
+                    s.source = se.source ?? .manual
+                    return s
                 }
             }
 

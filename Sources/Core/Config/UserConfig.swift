@@ -251,6 +251,8 @@ public struct AppState: Codable {
         public var isAgent: Bool?
         public var agentType: String?
         public var scrollbackFile: String?
+        public var isOrphaned: Bool?
+        public var source: SessionSource?
 
         public init(
             id: String,
@@ -260,7 +262,9 @@ public struct AppState: Codable {
             cwd: String,
             isAgent: Bool? = nil,
             agentType: String? = nil,
-            scrollbackFile: String? = nil
+            scrollbackFile: String? = nil,
+            isOrphaned: Bool? = nil,
+            source: SessionSource? = nil
         ) {
             self.id = id
             self.name = name
@@ -270,13 +274,16 @@ public struct AppState: Codable {
             self.isAgent = isAgent
             self.agentType = agentType
             self.scrollbackFile = scrollbackFile
+            self.isOrphaned = isOrphaned
+            self.source = source
         }
 
         enum CodingKeys: String, CodingKey {
-            case id, name, command, arguments, cwd
+            case id, name, command, arguments, cwd, source
             case isAgent = "is_agent"
             case agentType = "agent_type"
             case scrollbackFile = "scrollback_file"
+            case isOrphaned = "is_orphaned"
         }
     }
 }

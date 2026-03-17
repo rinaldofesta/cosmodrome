@@ -46,6 +46,11 @@ struct SessionThumbnailView: View {
                         .font(Typo.footnoteMedium)
                         .foregroundColor(isFocused ? DS.textPrimary : DS.textSecondary)
                         .lineLimit(1)
+                    if session.isOrphaned {
+                        Text("(orphaned)")
+                            .font(Typo.caption)
+                            .foregroundColor(DS.stateOrphaned)
+                    }
                 }
 
                 // Unread state change dot
@@ -364,8 +369,9 @@ struct SessionThumbnailView: View {
         return DS.textTertiary
     }
 
-    /// Unified status color for left border: stuck > agent state > running > inactive
+    /// Unified status color for left border: orphaned > stuck > agent state > running > inactive
     private var statusColor: Color {
+        if session.isOrphaned { return DS.stateOrphaned }
         if session.isAgent && session.stuckInfo != nil {
             return DS.stateError
         }

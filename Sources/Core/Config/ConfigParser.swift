@@ -132,20 +132,26 @@ public struct ConfigParser {
         )
 
         project.sessions = config.sessions.map { sessionConfig in
-            Session(
-                name: sessionConfig.name,
-                command: sessionConfig.command,
-                arguments: sessionConfig.args ?? [],
-                cwd: sessionConfig.cwd ?? rootPath ?? ".",
-                environment: sessionConfig.env ?? [:],
-                autoStart: sessionConfig.autoStart ?? false,
-                autoRestart: sessionConfig.autoRestart ?? false,
-                restartDelay: sessionConfig.restartDelay ?? 1.0,
-                isAgent: sessionConfig.agent ?? false,
-                agentType: sessionConfig.agentType
-            )
+            createSession(from: sessionConfig, rootPath: rootPath ?? ".")
         }
 
         return project
+    }
+
+    public func createSession(from config: SessionConfig, rootPath: String) -> Session {
+        let session = Session(
+            name: config.name,
+            command: config.command,
+            arguments: config.args ?? [],
+            cwd: config.cwd ?? rootPath,
+            environment: config.env ?? [:],
+            autoStart: config.autoStart ?? false,
+            autoRestart: config.autoRestart ?? false,
+            restartDelay: config.restartDelay ?? 1.0,
+            isAgent: config.agent ?? false,
+            agentType: config.agentType
+        )
+        session.source = .config
+        return session
     }
 }
