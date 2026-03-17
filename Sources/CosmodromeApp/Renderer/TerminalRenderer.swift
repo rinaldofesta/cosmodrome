@@ -239,6 +239,9 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
                         if cell.bg == .default { fgColor = theme.background }
                     }
 
+                    // Wide character support: use double-width for background
+                    let effectiveCellW = cell.wide ? cellW * 2 : cellW
+
                     // Background (including selection highlight)
                     let isSelected = selection?.contains(row: row, col: col) ?? false
                     if isSelected {
@@ -249,7 +252,7 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
                         guard idx + 6 <= glyphBase else { break }
                         addQuad(
                             ptr: vertexPtr, at: idx,
-                            x: x, y: y, w: cellW, h: cellH,
+                            x: x, y: y, w: effectiveCellW, h: cellH,
                             u0: 0, v0: 0, u1: 0, v1: 0,
                             color: bgColor
                         )
@@ -289,13 +292,33 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
 
                     let idx = glyphBase + glyphCount
                     guard idx + 6 <= cursorBase else { break }
-                    // Snap to integer pixel positions for crisp rendering with nearest-neighbor sampling
-                    let gx = roundf(x + glyph.bearing.x)
-                    let gy = roundf(y + baseline - glyph.bearing.y)
+
+                    // For wide characters (emoji, CJK), scale the glyph proportionally
+                    // to fit within the 2-cell-wide space they occupy.
+                    let quadW: Float
+                    let quadH: Float
+                    let gx: Float
+                    let gy: Float
+                    if cell.wide {
+                        let targetW = cellW * 2
+                        let scale = min(targetW / glyph.size.x, cellH / glyph.size.y)
+                        quadW = glyph.size.x * scale
+                        quadH = glyph.size.y * scale
+                        // Center the scaled glyph horizontally within the 2-cell span
+                        gx = roundf(x + (targetW - quadW) * 0.5)
+                        // Vertically align to baseline, adjusted for scaling
+                        gy = roundf(y + baseline - glyph.bearing.y * (quadH / glyph.size.y))
+                    } else {
+                        quadW = glyph.size.x
+                        quadH = glyph.size.y
+                        // Snap to integer pixel positions for crisp rendering with nearest-neighbor sampling
+                        gx = roundf(x + glyph.bearing.x)
+                        gy = roundf(y + baseline - glyph.bearing.y)
+                    }
 
                     addQuad(
                         ptr: vertexPtr, at: idx,
-                        x: gx, y: gy, w: glyph.size.x, h: glyph.size.y,
+                        x: gx, y: gy, w: quadW, h: quadH,
                         u0: glyph.uv.x, v0: glyph.uv.y,
                         u1: glyph.uv.z, v1: glyph.uv.w,
                         color: fgColor

@@ -18,6 +18,7 @@ final class GlyphAtlas {
     }
 
     private var cache: [GlyphKey: GlyphEntry] = [:]
+    private var fallbackFonts: [UInt32: CTFont] = [:] // codepoint → cached fallback font
     private(set) var textures: [MTLTexture] = []
     private let device: MTLDevice
     private let fontManager: FontManager
@@ -49,6 +50,7 @@ final class GlyphAtlas {
     /// Clear all cached glyphs (call after font size change).
     func clearCache() {
         cache.removeAll()
+        fallbackFonts.removeAll()
         textures.removeAll()
         packX = 1
         packY = 1
@@ -74,6 +76,13 @@ final class GlyphAtlas {
     }
 
     private func rasterize(_ key: GlyphKey) -> GlyphEntry {
+        let emptyEntry = GlyphEntry(textureIndex: 0, uv: .zero, size: .zero, bearing: .zero)
+
+        guard let scalar = Unicode.Scalar(key.codepoint) else {
+            cache[key] = emptyEntry
+            return emptyEntry
+        }
+
         var font = fontManager.ctFont(variant: key.fontVariant)
 
         var glyph = CGGlyph(0)
@@ -81,7 +90,6 @@ final class GlyphAtlas {
 
         // Handle multi-unit codepoints
         if key.codepoint > 0xFFFF {
-            let scalar = Unicode.Scalar(key.codepoint)!
             for unit in Character(scalar).utf16 {
                 chars.append(unit)
             }
@@ -94,14 +102,21 @@ final class GlyphAtlas {
         glyph = glyphs[0]
 
         // Font fallback: if the primary font doesn't have this glyph,
-        // ask CoreText to find one that does (emoji, symbols, CJK, etc.)
+        // check cache first, then ask CoreText (emoji, symbols, CJK, etc.)
         if glyph == 0 {
-            let str = String(Character(Unicode.Scalar(key.codepoint)!))
-            let fallback = CTFontCreateForString(font, str as CFString, CFRange(location: 0, length: str.utf16.count))
-            CTFontGetGlyphsForCharacters(fallback, chars, &glyphs, chars.count)
-            if glyphs[0] != 0 {
-                font = fallback
+            if let cachedFallback = fallbackFonts[key.codepoint] {
+                font = cachedFallback
+                CTFontGetGlyphsForCharacters(font, chars, &glyphs, chars.count)
                 glyph = glyphs[0]
+            } else {
+                let str = String(Character(scalar))
+                let fallback = CTFontCreateForString(font, str as CFString, CFRange(location: 0, length: str.utf16.count))
+                CTFontGetGlyphsForCharacters(fallback, chars, &glyphs, chars.count)
+                if glyphs[0] != 0 {
+                    fallbackFonts[key.codepoint] = fallback
+                    font = fallback
+                    glyph = glyphs[0]
+                }
             }
         }
 
@@ -137,7 +152,7 @@ final class GlyphAtlas {
         let bytesPerRow = bitmapW
         var pixels = [UInt8](repeating: 0, count: bytesPerRow * bitmapH)
 
-        let ctx = CGContext(
+        guard let ctx = CGContext(
             data: &pixels,
             width: bitmapW,
             height: bitmapH,
@@ -145,7 +160,10 @@ final class GlyphAtlas {
             bytesPerRow: bytesPerRow,
             space: CGColorSpaceCreateDeviceGray(),
             bitmapInfo: CGImageAlphaInfo.none.rawValue
-        )!
+        ) else {
+            cache[key] = emptyEntry
+            return emptyEntry
+        }
 
         ctx.setAllowsAntialiasing(true)
         ctx.setShouldAntialias(true)
