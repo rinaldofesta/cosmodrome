@@ -23,15 +23,18 @@ public enum StuckDetector {
         public let pattern: String?
         /// True if this stuck was predicted from historical patterns before reaching 3 retries.
         public let predictedFromHistory: Bool
+        /// True if detected early (2 cycles with identical errors), before the standard 3-cycle threshold.
+        public let isEarlyDetection: Bool
         /// Category of the stuck loop.
         public let kind: StuckKind
 
         public init(retryCount: Int, duration: TimeInterval, pattern: String?,
-                    predictedFromHistory: Bool = false) {
+                    predictedFromHistory: Bool = false, isEarlyDetection: Bool = false) {
             self.retryCount = retryCount
             self.duration = duration
             self.pattern = pattern
             self.predictedFromHistory = predictedFromHistory
+            self.isEarlyDetection = isEarlyDetection
             self.kind = Self.classifyPattern(pattern)
         }
 
@@ -54,10 +57,12 @@ public enum StuckDetector {
     /// - Parameters:
     ///   - events: Activity events for a single session (recent, ordered by time).
     ///   - currentState: The session's current agent state.
+    ///   - enableEarlyDetection: When true, detects stuck at 2 cycles if all error messages are identical.
     /// - Returns: StuckInfo if stuck, nil otherwise.
     public static func detect(
         events: [ActivityEvent],
-        currentState: AgentState
+        currentState: AgentState,
+        enableEarlyDetection: Bool = false
     ) -> StuckInfo? {
         // Only detect stuck when in working or error state
         guard currentState == .working || currentState == .error else { return nil }
@@ -67,7 +72,6 @@ public enum StuckDetector {
 
         // Look for error→stateChanged→error cycles
         let errorEvents = recentEvents.filter { isErrorEvent($0) }
-        guard errorEvents.count >= minRetries else { return nil }
 
         // Check for the error→working→error pattern (retry loop)
         let stateChanges = recentEvents.filter {
@@ -76,20 +80,39 @@ public enum StuckDetector {
         }
 
         let errorToWorkingCycles = countErrorCycles(stateChanges: stateChanges)
-        guard errorToWorkingCycles >= minRetries else { return nil }
 
-        // Calculate loop duration
-        guard let firstError = errorEvents.first?.timestamp else { return nil }
-        let duration = Date().timeIntervalSince(firstError)
+        // Standard detection: 3+ cycles
+        if errorEvents.count >= minRetries && errorToWorkingCycles >= minRetries {
+            guard let firstError = errorEvents.first?.timestamp else { return nil }
+            let duration = Date().timeIntervalSince(firstError)
+            let pattern = identifyPattern(errors: errorEvents)
 
-        // Try to identify the error pattern
-        let pattern = identifyPattern(errors: errorEvents)
+            return StuckInfo(
+                retryCount: errorToWorkingCycles,
+                duration: duration,
+                pattern: pattern,
+                isEarlyDetection: false
+            )
+        }
 
-        return StuckInfo(
-            retryCount: errorToWorkingCycles,
-            duration: duration,
-            pattern: pattern
-        )
+        // Early detection: 2 cycles with identical error messages
+        if enableEarlyDetection && errorToWorkingCycles >= 2 {
+            let errorEventsForCheck = recentEvents.filter { isErrorEvent($0) }
+            if allErrorsIdentical(errorEventsForCheck) {
+                guard let firstError = errorEventsForCheck.first?.timestamp else { return nil }
+                let duration = Date().timeIntervalSince(firstError)
+                let pattern = identifyPattern(errors: errorEventsForCheck)
+
+                return StuckInfo(
+                    retryCount: errorToWorkingCycles,
+                    duration: duration,
+                    pattern: pattern,
+                    isEarlyDetection: true
+                )
+            }
+        }
+
+        return nil
     }
 
     /// Detect stuck with historical pattern data for proactive prediction.
@@ -99,8 +122,8 @@ public enum StuckDetector {
         currentState: AgentState,
         patternLearner: PatternLearner?
     ) -> StuckInfo? {
-        // First try standard detection
-        if let standard = detect(events: events, currentState: currentState) {
+        // First try standard + early detection
+        if let standard = detect(events: events, currentState: currentState, enableEarlyDetection: true) {
             return standard
         }
 
@@ -139,6 +162,19 @@ public enum StuckDetector {
     }
 
     // MARK: - Private
+
+    /// Check whether all error events carry the exact same message.
+    private static func allErrorsIdentical(_ errors: [ActivityEvent]) -> Bool {
+        let messages = errors.compactMap { event -> String? in
+            switch event.kind {
+            case .error(let msg): return msg
+            case .commandCompleted(let cmd, _, _): return cmd
+            default: return nil
+            }
+        }
+        guard let first = messages.first, messages.count >= 2 else { return false }
+        return messages.allSatisfy { $0 == first }
+    }
 
     private static func isErrorEvent(_ event: ActivityEvent) -> Bool {
         switch event.kind {

@@ -84,6 +84,57 @@ final class StuckDetectorTests: XCTestCase {
         }
     }
 
+    // MARK: - Early Detection
+
+    func testEarlyDetectionWithIdenticalErrors() {
+        // 2 error→working→error cycles with the exact same error message
+        let events = [
+            makeEvent(.error(message: "type error in foo.ts"), ago: 60),
+            makeEvent(.stateChanged(from: .inactive, to: .working), ago: 55),
+            makeEvent(.stateChanged(from: .working, to: .error), ago: 50),
+            makeEvent(.error(message: "type error in foo.ts"), ago: 48),
+            makeEvent(.stateChanged(from: .error, to: .working), ago: 45),
+            makeEvent(.stateChanged(from: .working, to: .error), ago: 40),
+            makeEvent(.error(message: "type error in foo.ts"), ago: 38),
+        ]
+        let result = StuckDetector.detect(events: events, currentState: .error, enableEarlyDetection: true)
+        XCTAssertNotNil(result, "Should detect stuck early at 2 cycles with identical errors")
+        if let result {
+            XCTAssertTrue(result.isEarlyDetection, "Should be flagged as early detection")
+            XCTAssertEqual(result.retryCount, 2)
+        }
+    }
+
+    func testNoEarlyDetectionWithDifferentErrors() {
+        // 2 error→working→error cycles with different error messages
+        let events = [
+            makeEvent(.error(message: "type error in foo.ts"), ago: 60),
+            makeEvent(.stateChanged(from: .inactive, to: .working), ago: 55),
+            makeEvent(.stateChanged(from: .working, to: .error), ago: 50),
+            makeEvent(.error(message: "syntax error in bar.ts"), ago: 48),
+            makeEvent(.stateChanged(from: .error, to: .working), ago: 45),
+            makeEvent(.stateChanged(from: .working, to: .error), ago: 40),
+            makeEvent(.error(message: "missing import in baz.ts"), ago: 38),
+        ]
+        let result = StuckDetector.detect(events: events, currentState: .error, enableEarlyDetection: true)
+        XCTAssertNil(result, "Should NOT detect stuck with different error messages at 2 cycles")
+    }
+
+    func testEarlyDetectionDisabledByDefault() {
+        // 2 error→working→error cycles with identical errors but no enableEarlyDetection flag
+        let events = [
+            makeEvent(.error(message: "type error in foo.ts"), ago: 60),
+            makeEvent(.stateChanged(from: .inactive, to: .working), ago: 55),
+            makeEvent(.stateChanged(from: .working, to: .error), ago: 50),
+            makeEvent(.error(message: "type error in foo.ts"), ago: 48),
+            makeEvent(.stateChanged(from: .error, to: .working), ago: 45),
+            makeEvent(.stateChanged(from: .working, to: .error), ago: 40),
+            makeEvent(.error(message: "type error in foo.ts"), ago: 38),
+        ]
+        let result = StuckDetector.detect(events: events, currentState: .error)
+        XCTAssertNil(result, "Should NOT detect stuck at 2 cycles when enableEarlyDetection is false (default)")
+    }
+
     // MARK: - Event Grouping
 
     func testEventGroupingTaskBlock() {
