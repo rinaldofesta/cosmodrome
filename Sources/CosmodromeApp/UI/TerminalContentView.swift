@@ -78,7 +78,7 @@ final class TerminalContentView: NSView {
 
         renderer = TerminalRenderer(metalView: metalView, userConfig: userConfig)
         if renderer == nil {
-            FileHandle.standardError.write("[Cosmodrome] Metal renderer failed to initialize\n".data(using: .utf8)!)
+            FileHandle.standardError.write(Data("[Cosmodrome] Metal renderer failed to initialize\n".utf8))
         }
 
         DispatchQueue.main.async { [weak self] in

@@ -63,7 +63,7 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate {
 
         // Print socket path so users can export it
         FileHandle.standardError.write(
-            "[Cosmodrome] Dashboard socket: \(socketPath)\n".data(using: .utf8)!
+            Data("[Cosmodrome] Dashboard socket: \(socketPath)\n".utf8)
         )
         // Also print to stdout for easy capture
         print("COSMODROME_DASHBOARD_SOCKET=\(socketPath)")

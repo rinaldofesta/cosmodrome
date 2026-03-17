@@ -304,8 +304,8 @@ public final class AgentDetector {
             let lastLinePreview = String(lastLine.prefix(80))
             let matchInfo = detected.map { "\($0.rawValue)" } ?? "none"
             FileHandle.standardError.write(
-                "[AgentDetector] lines=\(lines.count) lastLine=\"\(lastLinePreview)\" detected=\(matchInfo) hookActive=\(hookActive) current=\(_state.rawValue)\n"
-                    .data(using: .utf8)!
+                Data("[AgentDetector] lines=\(lines.count) lastLine=\"\(lastLinePreview)\" detected=\(matchInfo) hookActive=\(hookActive) current=\(_state.rawValue)\n"
+                    .utf8)
             )
         }
 
@@ -320,8 +320,8 @@ public final class AgentDetector {
 
         if Self.debugEnabled {
             FileHandle.standardError.write(
-                "[AgentDetector] STATE CHANGE: \(_state.rawValue) → \(newState.rawValue)\n"
-                    .data(using: .utf8)!
+                Data("[AgentDetector] STATE CHANGE: \(_state.rawValue) → \(newState.rawValue)\n"
+                    .utf8)
             )
         }
 

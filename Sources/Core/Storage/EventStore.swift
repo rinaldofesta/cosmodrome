@@ -148,7 +148,9 @@ public final class EventStore {
 
     /// Create an EventStore backed by a SQLite database at the default location.
     public static func defaultStore() throws -> EventStore {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            throw NSError(domain: "Cosmodrome", code: 1, userInfo: [NSLocalizedDescriptionKey: "Application Support directory not found"])
+        }
         let dir = appSupport.appendingPathComponent("Cosmodrome")
         let dbPath = dir.appendingPathComponent("cosmodrome.db").path
         return try EventStore(path: dbPath)

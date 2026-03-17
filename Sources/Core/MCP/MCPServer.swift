@@ -306,7 +306,7 @@ public final class MCPServer {
 
         writeQueue.sync {
             let header = "Content-Length: \(data.count)\r\n\r\n"
-            FileHandle.standardOutput.write(header.data(using: .utf8)!)
+            FileHandle.standardOutput.write(Data(header.utf8))
             FileHandle.standardOutput.write(data)
         }
     }

@@ -189,5 +189,5 @@ func printUsage() {
 }
 
 func printError(_ message: String) {
-    FileHandle.standardError.write("Error: \(message)\n".data(using: .utf8)!)
+    FileHandle.standardError.write(Data("Error: \(message)\n".utf8))
 }

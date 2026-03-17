@@ -76,7 +76,7 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
         do {
             library = try device.makeLibrary(source: metalShaderSource, options: nil)
         } catch {
-            FileHandle.standardError.write("[Cosmodrome] Failed to compile Metal shaders: \(error)\n".data(using: .utf8)!)
+            FileHandle.standardError.write(Data("[Cosmodrome] Failed to compile Metal shaders: \(error)\n".utf8))
             return nil
         }
 
@@ -112,7 +112,7 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
         guard let bg = makePipeline(vertex: "bg_vert", fragment: "bg_frag"),
               let glyph = makePipeline(vertex: "glyph_vert", fragment: "glyph_frag"),
               let cursor = makePipeline(vertex: "cursor_vert", fragment: "cursor_frag") else {
-            FileHandle.standardError.write("[Cosmodrome] Failed to create render pipelines\n".data(using: .utf8)!)
+            FileHandle.standardError.write(Data("[Cosmodrome] Failed to create render pipelines\n".utf8))
             return nil
         }
         self.bgPipeline = bg

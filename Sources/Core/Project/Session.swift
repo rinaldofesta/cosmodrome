@@ -23,6 +23,7 @@ public final class Session: Identifiable {
     public var agentMode: String?        // e.g. "Plan", "Accept Edits", "Bypass"
     public var agentEffort: String?      // e.g. "high", "medium", "low"
     public var agentCost: String?        // e.g. "$0.34"
+    public var agentTask: String?        // e.g. "cosmod-protocol-phase1" (from Claude Code separator)
     @ObservationIgnored public var backend: TerminalBackend?
     @ObservationIgnored public var ptyFD: Int32 = -1
     @ObservationIgnored public var pid: pid_t = 0

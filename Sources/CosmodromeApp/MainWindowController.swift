@@ -193,7 +193,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
                         try self.sessionManager.startSession(session)
                         self.refreshTerminalView()
                     } catch {
-                        FileHandle.standardError.write("[Cosmodrome] Failed to restart session: \(error)\n".data(using: .utf8)!)
+                        FileHandle.standardError.write(Data("[Cosmodrome] Failed to restart session: \(error)\n".utf8))
                     }
                 },
                 onToggleActivityLog: { [weak self] in
@@ -327,7 +327,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
                             }
                         }
                     } catch {
-                        FileHandle.standardError.write("[Cosmodrome] Failed to restore session '\(session.name)': \(error)\n".data(using: .utf8)!)
+                        FileHandle.standardError.write(Data("[Cosmodrome] Failed to restore session '\(session.name)': \(error)\n".utf8))
                     }
                 }
             }
@@ -382,7 +382,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         do {
             try sessionManager.startSession(defaultSession)
         } catch {
-            FileHandle.standardError.write("[Cosmodrome] Failed to start default session: \(error)\n".data(using: .utf8)!)
+            FileHandle.standardError.write(Data("[Cosmodrome] Failed to start default session: \(error)\n".utf8))
         }
     }
 
@@ -449,7 +449,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
             do {
                 try self.sessionManager.startSession(session)
             } catch {
-                FileHandle.standardError.write("[Cosmodrome] Failed to start session: \(error)\n".data(using: .utf8)!)
+                FileHandle.standardError.write(Data("[Cosmodrome] Failed to start session: \(error)\n".utf8))
             }
 
             self.refreshTerminalView()
@@ -499,7 +499,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         do {
             try sessionManager.startSession(session)
         } catch {
-            FileHandle.standardError.write("[Cosmodrome] Failed to start session: \(error)\n".data(using: .utf8)!)
+            FileHandle.standardError.write(Data("[Cosmodrome] Failed to start session: \(error)\n".utf8))
         }
 
         // Rebuild sessions array so the new session is visible to the renderer
@@ -525,7 +525,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         do {
             try sessionManager.startSession(session)
         } catch {
-            FileHandle.standardError.write("[Cosmodrome] Failed to start Claude Code: \(error)\n".data(using: .utf8)!)
+            FileHandle.standardError.write(Data("[Cosmodrome] Failed to start Claude Code: \(error)\n".utf8))
         }
 
         refreshTerminalView()
@@ -805,7 +805,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
                 return try ConfigParser().parseTheme(at: bundleURL.path)
             } catch {
                 FileHandle.standardError.write(
-                    "[Cosmodrome] Failed to load theme '\(name)': \(error)\n".data(using: .utf8)!
+                    Data("[Cosmodrome] Failed to load theme '\(name)': \(error)\n".utf8)
                 )
             }
         }
@@ -816,7 +816,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
                 return try ConfigParser().parseTheme(at: userThemePath)
             } catch {
                 FileHandle.standardError.write(
-                    "[Cosmodrome] Failed to load user theme '\(name)': \(error)\n".data(using: .utf8)!
+                    Data("[Cosmodrome] Failed to load user theme '\(name)': \(error)\n".utf8)
                 )
             }
         }

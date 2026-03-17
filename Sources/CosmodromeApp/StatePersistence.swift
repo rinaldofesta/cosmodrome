@@ -93,7 +93,7 @@ enum StatePersistence {
         do {
             try configParser.saveAppState(state, to: statePath)
         } catch {
-            FileHandle.standardError.write("[Cosmodrome] Failed to save app state: \(error)\n".data(using: .utf8)!)
+            FileHandle.standardError.write(Data("[Cosmodrome] Failed to save app state: \(error)\n".utf8))
         }
     }
 

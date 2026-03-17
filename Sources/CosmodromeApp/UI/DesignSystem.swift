@@ -251,3 +251,20 @@ extension View {
         modifier(HoverEffect(cornerRadius: radius))
     }
 }
+
+// MARK: - Shared Components
+
+/// Badge displaying the agent's current mode (Plan, Auto, Bypass, Accept Edits).
+struct ModeBadge: View {
+    let mode: String
+
+    var body: some View {
+        Text(mode)
+            .font(Typo.caption)
+            .foregroundColor(DS.brand)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 1)
+            .background(DS.brand.opacity(0.12))
+            .cornerRadius(Radius.sm)
+    }
+}

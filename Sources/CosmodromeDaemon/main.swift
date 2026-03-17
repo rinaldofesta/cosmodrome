@@ -69,7 +69,7 @@ do {
     eventStore = try EventStore.defaultStore()
     print("[cosmodrome-daemon] Event store initialized")
 } catch {
-    FileHandle.standardError.write("[cosmodrome-daemon] Failed to initialize event store: \(error)\n".data(using: .utf8)!)
+    FileHandle.standardError.write(Data("[cosmodrome-daemon] Failed to initialize event store: \(error)\n".utf8))
     exit(1)
 }
 

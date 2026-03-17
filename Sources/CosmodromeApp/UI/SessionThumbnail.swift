@@ -90,6 +90,10 @@ struct SessionThumbnailView: View {
                             .font(Typo.caption)
                             .foregroundColor(DS.textTertiary)
                     }
+                    // Mode badge (Plan, Auto, Bypass, Accept Edits)
+                    if let mode = session.agentMode {
+                        ModeBadge(mode: mode)
+                    }
                     // Context percentage (just the number, no effort label)
                     if let context = session.agentContext {
                         Text("\u{00B7}")
@@ -121,6 +125,16 @@ struct SessionThumbnailView: View {
             }
             .padding(.horizontal, Spacing.md)
             .padding(.bottom, Spacing.xs)
+
+            // Row 2.5: Task label — what the agent is working on (from Claude Code separator)
+            if let task = session.agentTask {
+                Text(task)
+                    .font(Typo.captionMono)
+                    .foregroundColor(DS.accent)
+                    .lineLimit(1)
+                    .padding(.horizontal, Spacing.md)
+                    .padding(.bottom, Spacing.xs)
+            }
 
             // Row 3: State badge — prominent, colored
             if session.isAgent {

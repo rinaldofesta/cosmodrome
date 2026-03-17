@@ -461,7 +461,7 @@ final class SessionManager {
             do {
                 try startSession(session)
             } catch {
-                FileHandle.standardError.write("[Cosmodrome] Failed to start session '\(session.name)': \(error)\n".data(using: .utf8)!)
+                FileHandle.standardError.write(Data("[Cosmodrome] Failed to start session '\(session.name)': \(error)\n".utf8))
             }
         }
     }
@@ -499,7 +499,7 @@ final class SessionManager {
             recorders[session.id] = recorder
             stateLock.unlock()
         } catch {
-            FileHandle.standardError.write("[Cosmodrome] Failed to start recording: \(error)\n".data(using: .utf8)!)
+            FileHandle.standardError.write(Data("[Cosmodrome] Failed to start recording: \(error)\n".utf8))
         }
     }
 
@@ -766,7 +766,7 @@ final class SessionManager {
 
     private static func debugLog(_ message: @autoclosure () -> String) {
         if debugStatus {
-            FileHandle.standardError.write("[SessionManager] \(message())\n".data(using: .utf8)!)
+            FileHandle.standardError.write(Data("[SessionManager] \(message())\n".utf8))
         }
     }
 
@@ -783,6 +783,7 @@ final class SessionManager {
         var effort: String?
         var cost: String?
         var model: String?
+        var task: String?       // Claude Code task/plan label from separator line
     }
 
     /// Read the bottom rows of the terminal buffer and extract status bar info.
@@ -801,7 +802,8 @@ final class SessionManager {
 
         var info = StatusLineInfo()
 
-        // Classify rows: find the "info row" (ctx: or model) and "mode row" (mode on/off)
+        // Classify rows: find the "info row" (ctx: or model), "mode row" (mode on/off),
+        // and "task row" (separator line with task label)
         var infoRow: String?
         var modeRow: String?
 
@@ -815,6 +817,10 @@ final class SessionManager {
                 modeRow = row
             }
         }
+
+        // Task label: Claude Code renders a separator line (━━━ or ─── etc.) with a task label
+        // at the right end. Scan all rows for this pattern.
+        info.task = extractTaskLabel(from: rowStrings)
 
         debugLog("infoRow: \(infoRow ?? "nil") | modeRow: \(modeRow ?? "nil")")
 
@@ -881,9 +887,49 @@ final class SessionManager {
             }
         }
 
-        debugLog("Result: ctx=\(info.context ?? "nil") model=\(info.model ?? "nil") mode=\(info.mode ?? "nil") effort=\(info.effort ?? "nil") cost=\(info.cost ?? "nil")")
+        debugLog("Result: ctx=\(info.context ?? "nil") model=\(info.model ?? "nil") mode=\(info.mode ?? "nil") effort=\(info.effort ?? "nil") cost=\(info.cost ?? "nil") task=\(info.task ?? "nil")")
 
         return info
+    }
+
+    /// Extract task/plan label from Claude Code's separator line.
+    /// Claude Code renders: ━━━━━━━━━━━━━━━━━━━━━━━━ task-label-here
+    /// The separator uses box-drawing characters (━, ─, ═) followed by whitespace and a label.
+    private static func extractTaskLabel(from rows: [String]) -> String? {
+        // Box-drawing horizontal line characters
+        let separatorChars: Set<Character> = ["━", "─", "═", "╌", "╍", "┄", "┅", "╶", "╴"]
+
+        for row in rows {
+            let trimmed = row.trimmingCharacters(in: .whitespaces)
+            guard trimmed.count >= 10 else { continue }
+
+            // Count leading separator characters
+            var sepCount = 0
+            for ch in trimmed {
+                if separatorChars.contains(ch) {
+                    sepCount += 1
+                } else {
+                    break
+                }
+            }
+
+            // Need a substantial separator (at least 8 chars) to avoid false positives
+            guard sepCount >= 8 else { continue }
+
+            // Extract the text after the separator characters
+            let afterSep = String(trimmed.dropFirst(sepCount)).trimmingCharacters(in: .whitespaces)
+            guard !afterSep.isEmpty else { continue }
+
+            // The label should be a reasonable identifier (no super long strings, no control chars)
+            let label = afterSep.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard label.count >= 2, label.count <= 80 else { continue }
+            // Skip if it looks like a status line element rather than a task label
+            guard label.range(of: #"(?i)ctx:|opus|sonnet|haiku|shift\+tab|mode\s+on"#,
+                              options: .regularExpression) == nil else { continue }
+
+            return label
+        }
+        return nil
     }
 
     /// Parse a cost string like "$0.34" or "$12.50" into a Double.
@@ -1124,12 +1170,16 @@ final class SessionManager {
     }
 
     /// Parse status line from pre-read buffer snapshot (throttled).
+    /// First call for a session always runs immediately (no throttle).
     private func updateStatusLineFromSnapshot(session: Session, rows: [String]) {
         let now = Date()
-        let upgradeAge = agentUpgradeTime[session.id].map { now.timeIntervalSince($0) } ?? 10.0
-        let throttleInterval: TimeInterval = upgradeAge < 10.0 ? 0.5 : 2.0
-        if let last = lastStatusParse[session.id], now.timeIntervalSince(last) < throttleInterval {
-            return
+        let isFirstParse = lastStatusParse[session.id] == nil
+        if !isFirstParse {
+            let upgradeAge = agentUpgradeTime[session.id].map { now.timeIntervalSince($0) } ?? 10.0
+            let throttleInterval: TimeInterval = upgradeAge < 10.0 ? 0.5 : 2.0
+            if let last = lastStatusParse[session.id], now.timeIntervalSince(last) < throttleInterval {
+                return
+            }
         }
         lastStatusParse[session.id] = now
 
@@ -1137,7 +1187,8 @@ final class SessionManager {
         let info = Self.parseStatusLine(from: bottom6)
         Self.debugLog("updateStatusLine: session=\(session.name) ctx=\(info.context ?? "nil") model=\(info.model ?? "nil") mode=\(info.mode ?? "nil") effort=\(info.effort ?? "nil") cost=\(info.cost ?? "nil")")
         if let ctx = info.context, ctx != session.agentContext { session.agentContext = ctx }
-        if let mode = info.mode, mode != session.agentMode { session.agentMode = mode }
+        // Mode: update when present, clear when absent (user switched back to default)
+        if info.mode != session.agentMode { session.agentMode = info.mode }
         if let effort = info.effort, effort != session.agentEffort { session.agentEffort = effort }
         if let cost = info.cost, cost != session.agentCost {
             session.agentCost = cost
@@ -1148,6 +1199,8 @@ final class SessionManager {
         if let model = info.model, model != session.agentModel {
             session.agentModel = model
         }
+        // Task label: update when present, clear when absent
+        if info.task != session.agentTask { session.agentTask = info.task }
     }
 
     /// Scan pre-read buffer snapshot for agent state (throttled 300ms).

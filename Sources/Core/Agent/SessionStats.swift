@@ -48,10 +48,10 @@ public final class SessionStats {
 
     /// Average cost per completed task.
     public var averageTaskCost: Double? {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !_taskCosts.isEmpty else { return nil }
-        return _taskCosts.reduce(0, +) / Double(_taskCosts.count)
+        lock.withLock {
+            guard !_taskCosts.isEmpty else { return nil }
+            return _taskCosts.reduce(0, +) / Double(_taskCosts.count)
+        }
     }
 
     /// Cost of the most recently completed task.
@@ -61,23 +61,23 @@ public final class SessionStats {
 
     /// Current idle duration. Returns 0 if the agent is active.
     public var currentIdleDuration: TimeInterval {
-        lock.lock()
-        defer { lock.unlock() }
-        if let idleStart = _idleStartedAt {
-            return Date().timeIntervalSince(idleStart)
+        lock.withLock {
+            if let idleStart = _idleStartedAt {
+                return Date().timeIntervalSince(idleStart)
+            }
+            return 0
         }
-        return 0
     }
 
     /// Total accumulated idle time (including current idle stretch if any).
     public var totalIdleTime: TimeInterval {
-        lock.lock()
-        defer { lock.unlock() }
-        var total = _totalIdleTime
-        if let idleStart = _idleStartedAt {
-            total += Date().timeIntervalSince(idleStart)
+        lock.withLock {
+            var total = _totalIdleTime
+            if let idleStart = _idleStartedAt {
+                total += Date().timeIntervalSince(idleStart)
+            }
+            return total
         }
-        return total
     }
 
     /// Session uptime.
@@ -96,28 +96,28 @@ public final class SessionStats {
 
     /// Record a cost update (parsed from agent status line).
     public func recordCost(_ cost: Double) {
-        lock.lock()
-        _totalCost = cost
-        let now = Date()
-        _costHistory.append((now, cost))
-        if _costHistory.count > maxCostHistory {
-            _costHistory.removeFirst()
+        lock.withLock {
+            _totalCost = cost
+            let now = Date()
+            _costHistory.append((now, cost))
+            if _costHistory.count > maxCostHistory {
+                _costHistory.removeFirst()
+            }
         }
-        lock.unlock()
     }
 
     /// Record a task completion. Calculates per-task cost from the delta since task start.
     public func recordTaskCompleted() {
-        lock.lock()
-        _totalTasks += 1
-        let taskCost = _totalCost - _taskStartCost
-        if taskCost > 0 {
-            _taskCosts.append(taskCost)
-            if _taskCosts.count > maxTaskCosts {
-                _taskCosts.removeFirst()
+        lock.withLock {
+            _totalTasks += 1
+            let taskCost = _totalCost - _taskStartCost
+            if taskCost > 0 {
+                _taskCosts.append(taskCost)
+                if _taskCosts.count > maxTaskCosts {
+                    _taskCosts.removeFirst()
+                }
             }
         }
-        lock.unlock()
     }
 
     /// Mark the start of a new task (records current cost for delta calculation).
@@ -147,41 +147,40 @@ public final class SessionStats {
 
     /// Called on state transition. Tracks idle time accumulation.
     public func recordStateTransition(from: AgentState, to: AgentState) {
-        lock.lock()
-        let now = Date()
+        lock.withLock {
+            let now = Date()
 
-        if to == .inactive {
-            // Entering idle
-            if _idleStartedAt == nil {
-                _idleStartedAt = now
+            if to == .inactive {
+                // Entering idle
+                if _idleStartedAt == nil {
+                    _idleStartedAt = now
+                }
+            } else {
+                // Leaving idle
+                if let idleStart = _idleStartedAt {
+                    _totalIdleTime += now.timeIntervalSince(idleStart)
+                    _idleStartedAt = nil
+                }
+                _lastActiveAt = now
             }
-        } else {
-            // Leaving idle
-            if let idleStart = _idleStartedAt {
-                _totalIdleTime += now.timeIntervalSince(idleStart)
-                _idleStartedAt = nil
-            }
-            _lastActiveAt = now
         }
-
-        lock.unlock()
     }
 
     // MARK: - Snapshot for persistence
 
     /// Thread-safe snapshot of all stats for persistence to SQLite.
     public func snapshot() -> SessionStatsSnapshot {
-        lock.lock()
-        defer { lock.unlock() }
-        return SessionStatsSnapshot(
-            totalCost: _totalCost,
-            totalTasks: _totalTasks,
-            totalErrors: _totalErrors,
-            totalFilesChanged: _totalFilesChanged,
-            totalCommands: _totalCommands,
-            totalSubagents: _totalSubagents,
-            totalIdleTime: _totalIdleTime
-        )
+        lock.withLock {
+            SessionStatsSnapshot(
+                totalCost: _totalCost,
+                totalTasks: _totalTasks,
+                totalErrors: _totalErrors,
+                totalFilesChanged: _totalFilesChanged,
+                totalCommands: _totalCommands,
+                totalSubagents: _totalSubagents,
+                totalIdleTime: _totalIdleTime
+            )
+        }
     }
 }
 

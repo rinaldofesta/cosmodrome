@@ -15,6 +15,8 @@ struct AgentStatusBarView: View {
                     sessionName: entry.sessionName,
                     state: entry.state,
                     model: entry.model,
+                    mode: entry.mode,
+                    task: entry.task,
                     branch: entry.branch,
                     narrativeHeadline: entry.narrativeHeadline,
                     isStuck: entry.isStuck,
@@ -97,6 +99,8 @@ struct AgentStatusBarView: View {
         let sessionName: String
         let state: AgentState
         let model: String?
+        let mode: String?
+        let task: String?
         let branch: String?
         let narrativeHeadline: String?
         let isStuck: Bool
@@ -114,6 +118,8 @@ struct AgentStatusBarView: View {
                         sessionName: session.name,
                         state: session.agentState,
                         model: session.agentModel,
+                        mode: session.agentMode,
+                        task: session.agentTask,
                         branch: session.gitBranch,
                         narrativeHeadline: session.narrative?.headline,
                         isStuck: session.stuckInfo != nil
@@ -134,6 +140,8 @@ private struct AgentStatusEntry: View {
     let sessionName: String
     let state: AgentState
     let model: String?
+    let mode: String?
+    let task: String?
     let branch: String?
     let narrativeHeadline: String?
     let isStuck: Bool
@@ -159,6 +167,11 @@ private struct AgentStatusEntry: View {
                     .font(Typo.body)
                     .foregroundColor(isFocused ? DS.textPrimary : DS.textSecondary)
                     .lineLimit(1)
+
+                // Mode badge (Plan, Auto, Bypass, Accept Edits)
+                if let mode {
+                    ModeBadge(mode: mode)
+                }
 
                 if let branch {
                     HStack(spacing: 2) {
@@ -195,11 +208,13 @@ private struct AgentStatusEntry: View {
     }
 
     private var statusText: String {
+        // Use task label as primary identifier when available
+        let label = task ?? displayLabel
         // Prefer narrative headline when available
         if let headline = narrativeHeadline {
-            return "\(displayLabel) \u{2014} \(headline)"
+            return "\(label) \u{2014} \(headline)"
         }
-        var text = displayLabel
+        var text = label
         if let model {
             text += " \(model)"
         }
@@ -217,31 +232,3 @@ private struct AgentStatusEntry: View {
     }
 }
 
-// MARK: - Status Bar Button (unused but kept for potential future use)
-
-private struct StatusBarButton: View {
-    let icon: String
-    let label: String
-    let shortcut: String
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(Typo.footnote)
-                .foregroundColor(isHovered ? DS.textPrimary : DS.textTertiary)
-        }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 5)
-        .padding(.vertical, 3)
-        .background(
-            RoundedRectangle(cornerRadius: Radius.sm)
-                .fill(isHovered ? DS.bgHover : Color.clear)
-                .animation(Anim.quick, value: isHovered)
-        )
-        .onHover { isHovered = $0 }
-        .help("\(label)  \(shortcut)")
-    }
-}
