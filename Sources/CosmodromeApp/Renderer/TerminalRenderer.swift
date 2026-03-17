@@ -242,7 +242,7 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
                     // Background (including selection highlight)
                     let isSelected = selection?.contains(row: row, col: col) ?? false
                     if isSelected {
-                        bgColor = SIMD4<Float>(0.3, 0.5, 0.8, 0.5) // Blue selection highlight
+                        bgColor = theme.selectionHighlight
                     }
                     if bgColor != theme.background || isSelected || isInverse {
                         let idx = bgBase + bgCount

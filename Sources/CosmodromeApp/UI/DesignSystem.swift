@@ -147,6 +147,13 @@ enum DS {
     }
     static let borderFocus = Color.accentColor.opacity(0.6)
 
+    // Terminal selection (for SwiftUI overlays that need the selection color)
+    static var selectionBackground: Color {
+        ThemeState.shared.isDark
+            ? Color(red: 0.3, green: 0.5, blue: 0.8).opacity(0.45)
+            : Color(red: 0.2, green: 0.4, blue: 0.7).opacity(0.35)
+    }
+
     // Agent state colors — adapt for light/dark theme visibility
     static var stateWorking: Color {
         ThemeState.shared.isDark
