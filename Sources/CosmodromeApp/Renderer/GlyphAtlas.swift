@@ -7,6 +7,7 @@ import Metal
 final class GlyphAtlas {
     struct GlyphKey: Hashable {
         let codepoint: UInt32
+        let combining: UInt32 // 0 if no combining mark
         let fontVariant: UInt8 // 0=regular, 1=bold, 2=italic, 3=boldItalic
     }
 
@@ -23,6 +24,7 @@ final class GlyphAtlas {
     private let device: MTLDevice
     private let fontManager: FontManager
     private let atlasSize: Int = 2048
+    private let maxPages: Int = 8
 
     // Row packer state
     private var packX: Int = 1 // start at 1 to avoid bleeding
@@ -78,7 +80,15 @@ final class GlyphAtlas {
     private func rasterize(_ key: GlyphKey) -> GlyphEntry {
         let emptyEntry = GlyphEntry(textureIndex: 0, uv: .zero, size: .zero, bearing: .zero)
 
-        guard let scalar = Unicode.Scalar(key.codepoint) else {
+        // Build the string to rasterize, composing base + combining mark if present
+        let str: String
+        if key.combining != 0,
+           let baseScalar = Unicode.Scalar(key.codepoint),
+           let combScalar = Unicode.Scalar(key.combining) {
+            str = String(baseScalar) + String(combScalar)
+        } else if let scalar = Unicode.Scalar(key.codepoint) {
+            str = String(scalar)
+        } else {
             cache[key] = emptyEntry
             return emptyEntry
         }
@@ -86,16 +96,7 @@ final class GlyphAtlas {
         var font = fontManager.ctFont(variant: key.fontVariant)
 
         var glyph = CGGlyph(0)
-        var chars: [UniChar] = []
-
-        // Handle multi-unit codepoints
-        if key.codepoint > 0xFFFF {
-            for unit in Character(scalar).utf16 {
-                chars.append(unit)
-            }
-        } else {
-            chars = [UniChar(key.codepoint)]
-        }
+        var chars = Array(str.utf16)
 
         var glyphs = [CGGlyph](repeating: 0, count: chars.count)
         CTFontGetGlyphsForCharacters(font, chars, &glyphs, chars.count)
@@ -109,7 +110,6 @@ final class GlyphAtlas {
                 CTFontGetGlyphsForCharacters(font, chars, &glyphs, chars.count)
                 glyph = glyphs[0]
             } else {
-                let str = String(Character(scalar))
                 let fallback = CTFontCreateForString(font, str as CFString, CFRange(location: 0, length: str.utf16.count))
                 CTFontGetGlyphsForCharacters(fallback, chars, &glyphs, chars.count)
                 if glyphs[0] != 0 {
@@ -211,6 +211,19 @@ final class GlyphAtlas {
 
         // Check if we need a new atlas page
         if packY + height + 1 > atlasSize {
+            if textures.count >= maxPages {
+                // Evict oldest page: remove first texture, adjust cache entries
+                textures.removeFirst()
+                cache = cache.filter { $0.value.textureIndex > 0 }
+                    .mapValues { entry in
+                        GlyphEntry(
+                            textureIndex: entry.textureIndex - 1,
+                            uv: entry.uv,
+                            size: entry.size,
+                            bearing: entry.bearing
+                        )
+                    }
+            }
             textures.append(createAtlasTexture())
             packX = 1
             packY = 1

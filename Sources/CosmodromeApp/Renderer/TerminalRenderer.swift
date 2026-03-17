@@ -261,6 +261,11 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
 
                     // Glyph
                     let cp = cell.codepoint
+
+                    // Skip standalone combining marks — they were already composed
+                    // into the previous cell's glyph as a single atlas entry.
+                    if isCombiningMark(cp) { continue }
+
                     guard cp > 32 else { continue }
 
                     // Block drawing characters (U+2580-U+259F): render procedurally
@@ -285,8 +290,19 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
                         continue
                     }
 
+                    // Check if the next cell contains a combining mark that should
+                    // be composed with this base character into a single glyph.
+                    var combining: UInt32 = 0
+                    if col + 1 < cols {
+                        let nextCell = backend.cell(row: row, col: col + 1)
+                        let nextCp = nextCell.codepoint
+                        if isCombiningMark(nextCp) {
+                            combining = nextCp
+                        }
+                    }
+
                     let variant = FontManager.variant(from: cell.attrs)
-                    let key = GlyphAtlas.GlyphKey(codepoint: cp, fontVariant: variant)
+                    let key = GlyphAtlas.GlyphKey(codepoint: cp, combining: combining, fontVariant: variant)
                     let glyph = atlas.lookup(key)
                     guard glyph.size.x > 0 && glyph.size.y > 0 else { continue }
 
@@ -563,6 +579,15 @@ final class TerminalRenderer: NSObject, MTKViewDelegate {
         default:
             return [BlockRect(x: 0, y: 0, w: cellW, h: cellH, alpha: 1)]
         }
+    }
+
+    // MARK: - Combining Mark Detection
+
+    /// Returns true if the codepoint is a Unicode combining mark.
+    private func isCombiningMark(_ cp: UInt32) -> Bool {
+        (cp >= 0x0300 && cp <= 0x036F) ||   // Combining Diacritical Marks
+        (cp >= 0x1AB0 && cp <= 0x1AFF) ||   // Combining Diacritical Marks Extended
+        (cp >= 0x20D0 && cp <= 0x20FF)      // Combining Diacritical Marks for Symbols
     }
 
     // MARK: - Color Resolution
