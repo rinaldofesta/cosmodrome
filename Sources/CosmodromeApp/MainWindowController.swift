@@ -958,6 +958,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
             return true
         }
 
+        // Cmd+A: select all content in focused session
+        if event.modifierFlags.contains(.command) && event.keyCode == 0 { // 'a'
+            terminalContentView.selectAll()
+            return true
+        }
+
         // Ctrl+Space toggles between normal and command mode
         if event.keyCode == 49 && event.modifierFlags.contains(.control) {
             keybindingManager.toggleMode()

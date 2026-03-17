@@ -819,15 +819,57 @@ final class TerminalContentView: NSView {
            let focusedId = focusedSessionId,
            let pair = sessions.first(where: { $0.session.id == focusedId }) {
             let absRow = cell.row + pair.backend.scrollbackCount - pair.backend.scrollOffset
-            selection = TerminalSelection(startRow: absRow, startCol: cell.col,
-                                          endRow: absRow, endCol: cell.col)
-            isDragging = true
-            updateLayout() // Updates renderer.selection with viewport conversion
+
+            if event.clickCount == 3 {
+                // Triple-click: select entire line
+                selection = TerminalSelection(startRow: absRow, startCol: 0,
+                                              endRow: absRow, endCol: pair.backend.cols - 1)
+                isDragging = false
+                updateLayout()
+            } else if event.clickCount == 2 {
+                // Double-click: select word at click position
+                let bounds = wordBoundaries(at: cell.col, row: cell.row, backend: pair.backend)
+                selection = TerminalSelection(startRow: absRow, startCol: bounds.start,
+                                              endRow: absRow, endCol: bounds.end)
+                isDragging = false
+                updateLayout()
+            } else {
+                // Single click: start drag selection
+                selection = TerminalSelection(startRow: absRow, startCol: cell.col,
+                                              endRow: absRow, endCol: cell.col)
+                isDragging = true
+                updateLayout() // Updates renderer.selection with viewport conversion
+            }
         } else {
             selection = nil
             renderer?.selection = nil
             isDragging = false
         }
+    }
+
+    /// Scan left and right from a cell position to find word boundaries.
+    /// Word characters include letters, digits, and common path/identifier characters.
+    private func wordBoundaries(at col: Int, row: Int, backend: TerminalBackend) -> (start: Int, end: Int) {
+        let isWordChar: (UInt32) -> Bool = { cp in
+            guard cp > 0, let scalar = UnicodeScalar(cp) else { return false }
+            let c = Character(scalar)
+            return c.isLetter || c.isNumber || "_./~-".contains(c)
+        }
+        var start = col
+        var end = col
+        backend.lock()
+        while start > 0 {
+            let cell = backend.cell(row: row, col: start - 1)
+            guard isWordChar(cell.codepoint) else { break }
+            start -= 1
+        }
+        while end < backend.cols - 1 {
+            let cell = backend.cell(row: row, col: end + 1)
+            guard isWordChar(cell.codepoint) else { break }
+            end += 1
+        }
+        backend.unlock()
+        return (start, end)
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -878,7 +920,18 @@ final class TerminalContentView: NSView {
         isDragging = false
     }
 
-    // MARK: - Copy / Paste
+    // MARK: - Copy / Paste / Select All
+
+    /// Select all content in the focused session (scrollback + visible).
+    func selectAll() {
+        guard let focusedId = focusedSessionId,
+              let pair = sessions.first(where: { $0.session.id == focusedId }) else { return }
+        let backend = pair.backend
+        let totalRows = backend.scrollbackCount + backend.rows
+        selection = TerminalSelection(startRow: 0, startCol: 0,
+                                      endRow: totalRows - 1, endCol: backend.cols - 1)
+        updateLayout()
+    }
 
     func copySelection() {
         guard let sel = selection,
@@ -1053,8 +1106,15 @@ final class TerminalContentView: NSView {
             for col in colStart...colEnd {
                 guard col >= 0 && col < backend.cols else { continue }
                 let cell = backend.cell(row: vpRow, col: col)
-                if cell.codepoint > 0 {
-                    result.append(Character(UnicodeScalar(cell.codepoint)!))
+                // Skip continuation cells (second half of wide characters)
+                if cell.codepoint == 0 { continue }
+                // Check if this is a wide char's continuation by checking previous cell
+                if col > 0 {
+                    let prev = backend.cell(row: vpRow, col: col - 1)
+                    if prev.wide && prev.codepoint == cell.codepoint { continue }
+                }
+                if cell.codepoint > 0, let scalar = UnicodeScalar(cell.codepoint) {
+                    result.append(Character(scalar))
                 }
             }
 
