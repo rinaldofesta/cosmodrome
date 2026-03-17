@@ -1,5 +1,24 @@
 import Foundation
 
+/// Confidence level of agent state detection.
+public enum DetectionConfidence: String, Comparable {
+    case high    // hook data or multiple signals agree
+    case medium  // single regex match, plausible
+    case low     // weak signal, could be false positive
+
+    private var sortOrder: Int {
+        switch self {
+        case .high: return 2
+        case .medium: return 1
+        case .low: return 0
+        }
+    }
+
+    public static func < (lhs: DetectionConfidence, rhs: DetectionConfidence) -> Bool {
+        lhs.sortOrder < rhs.sortOrder
+    }
+}
+
 /// Detects AI agent state from terminal output. Runs inline on I/O thread.
 /// Also handles model detection and activity event extraction.
 public final class AgentDetector {
@@ -7,6 +26,7 @@ public final class AgentDetector {
     public static let debugEnabled = ProcessInfo.processInfo.environment["COSMODROME_DEBUG_STATE"] != nil
 
     private var _state: AgentState = .inactive
+    private var _confidence: DetectionConfidence = .low
 
     /// Thread-safe read of the current agent state.
     public var state: AgentState {
@@ -14,6 +34,13 @@ public final class AgentDetector {
         let s = _state
         lock.unlock()
         return s
+    }
+
+    /// Thread-safe read of the current detection confidence.
+    public var confidence: DetectionConfidence {
+        lock.lock()
+        defer { lock.unlock() }
+        return _confidence
     }
 
     private var previousState: AgentState = .inactive
@@ -159,16 +186,18 @@ public final class AgentDetector {
         hasHookData = true
         lastHookEvent = Date()
 
-        // Map hook events to agent state
+        // Map hook events to agent state — hook data is authoritative (high confidence)
         switch event.hookName {
         case "PreToolUse":
             if _state != .working {
                 stats?.recordTaskStarted()
             }
             _state = .working
+            _confidence = .high
             lastChange = Date()
         case "Stop":
             _state = .inactive
+            _confidence = .high
             lastChange = Date()
         default:
             break
@@ -199,6 +228,7 @@ public final class AgentDetector {
     public func reset() {
         lock.lock()
         _state = .inactive
+        _confidence = .low
         previousState = .inactive
         lastChange = Date.distantPast
         hasHookData = false
@@ -232,6 +262,7 @@ public final class AgentDetector {
         let lastLine = lines.last.map(String.init) ?? ""
 
         var detected: AgentState?
+        var matchedPriority: Int = 0
 
         // Two-phase detection:
         // Phase 1 — lastLineOnly patterns first. These reflect what's actively
@@ -246,6 +277,7 @@ public final class AgentDetector {
             }
             if lastLine.range(of: pattern.regex, options: .regularExpression) != nil {
                 detected = pattern.state
+                matchedPriority = pattern.priority
                 break
             }
         }
@@ -262,6 +294,7 @@ public final class AgentDetector {
                 }
                 if bodyText.range(of: pattern.regex, options: .regularExpression) != nil {
                     detected = pattern.state
+                    matchedPriority = pattern.priority
                     break
                 }
             }
@@ -293,7 +326,15 @@ public final class AgentDetector {
         }
 
         _state = newState
+        _confidence = Self.confidenceFromPriority(matchedPriority)
         lastChange = now
+    }
+
+    /// Map a pattern priority to a detection confidence level.
+    private static func confidenceFromPriority(_ priority: Int) -> DetectionConfidence {
+        if priority >= 20 { return .high }
+        if priority >= 10 { return .medium }
+        return .low
     }
 
     // MARK: - Private: Event Extraction

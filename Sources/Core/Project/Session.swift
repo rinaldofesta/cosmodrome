@@ -17,6 +17,7 @@ public final class Session: Identifiable {
 
     // Runtime state (not persisted)
     public var agentState: AgentState = .inactive
+    public var detectionConfidence: DetectionConfidence = .low
     public var agentModel: String?
     public var agentContext: String?     // e.g. "45k/200k"
     public var agentMode: String?        // e.g. "Plan", "Accept Edits", "Bypass"

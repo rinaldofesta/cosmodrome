@@ -186,12 +186,14 @@ final class SessionManager {
                 self?.stateLock.unlock()
                 if let detector {
                     let newState = detector.state
+                    let newConfidence = detector.confidence
                     let oldState = session.agentState
                     let model = detector.modelDetector.currentModel
                     let events = detector.consumeEvents()
 
                     DispatchQueue.main.async {
                         session.agentState = newState
+                        session.detectionConfidence = newConfidence
                         if model != session.agentModel { session.agentModel = model }
 
                         // Read buffer ONCE and run all scans against the snapshot.
@@ -432,6 +434,7 @@ final class SessionManager {
         session.pid = 0
         session.backend = nil
         session.agentState = .inactive
+        session.detectionConfidence = .low
         session.agentModel = nil
         session.agentContext = nil
         session.agentMode = nil
@@ -631,12 +634,14 @@ final class SessionManager {
                 self?.stateLock.unlock()
                 if let detector {
                     let newState = detector.state
+                    let newConfidence = detector.confidence
                     let oldState = session.agentState
                     let model = detector.modelDetector.currentModel
                     let events = detector.consumeEvents()
 
                     DispatchQueue.main.async {
                         session.agentState = newState
+                        session.detectionConfidence = newConfidence
                         if model != session.agentModel { session.agentModel = model }
                         self?.updateStatusLine(session: session, backend: backend)
                         self?.scanForAgentStateIfNeeded(session: session, backend: backend)
@@ -744,6 +749,7 @@ final class SessionManager {
         session.isAgent = false
         session.agentType = nil
         session.agentState = .inactive
+        session.detectionConfidence = .low
         session.agentModel = nil
         stateLock.lock()
         detectors.removeValue(forKey: session.id)
@@ -1189,6 +1195,7 @@ final class SessionManager {
             stateLock.unlock()
             if let detector, detector.state != .needsInput {
                 session.agentState = detector.state
+                session.detectionConfidence = detector.confidence
             }
         }
     }
@@ -1241,6 +1248,7 @@ final class SessionManager {
         let wasRunning = session.isRunning
         session.isRunning = false
         session.agentState = .inactive
+        session.detectionConfidence = .low
 
         // Log session exit
         if let project = findProject(for: session) {
