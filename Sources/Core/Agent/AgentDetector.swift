@@ -27,7 +27,7 @@ public final class AgentDetector {
     // When true, hook events have been received — suppress regex state detection
     private var hasHookData = false
     private var lastHookEvent = Date.distantPast
-    private let hookTimeout: TimeInterval = 30
+    private let hookTimeout: TimeInterval = 10
 
     // Synchronization: protects mutable state accessed from both I/O thread (analyzeText)
     // and main thread (consumeEvents, ingestHookEvent).

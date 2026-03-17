@@ -16,12 +16,24 @@ final class BufferStateScannerTests: XCTestCase {
     }
 
     func testDifferentSpinnerCharsDetectWorking() {
-        for spinner in ["⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏", "●"] {
+        // ● is intentionally excluded — it appears in Claude Code's status bar
+        // as an effort indicator (e.g. "● high") and causes false positives.
+        for spinner in ["⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] {
             let rows = ["\(spinner) Working on task..."]
             let result = BufferStateScanner.scan(rows: rows, agentType: "claude")
             XCTAssertEqual(result.state, .working, "Spinner '\(spinner)' should detect working")
             XCTAssertEqual(result.confidence, .high)
         }
+    }
+
+    func testBulletDoesNotFalsePositiveWorking() {
+        // ● in status bar (effort indicator) should NOT trigger working state
+        let rows = [
+            "user@host  /path  Opus 4.6 | ctx: 89%   ● high",
+            "> ",
+        ]
+        let result = BufferStateScanner.scan(rows: rows, agentType: "claude")
+        XCTAssertNotEqual(result.state, .working, "● effort indicator should not trigger working")
     }
 
     func testStatusBarIdlePromptInactive() {

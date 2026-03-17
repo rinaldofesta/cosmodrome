@@ -23,9 +23,10 @@ public struct BufferStateResult {
 public enum BufferStateScanner {
 
     // Braille spinner characters used by Claude Code and other TUI agents.
-    // Must appear at line start (after optional whitespace) to avoid false matches
-    // with ● used as a separator in the status bar (e.g. "ctx: 89%   ● high").
-    private static let spinnerPattern = #"(?m)^\s*[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏●]"#
+    // Must appear at line start (after optional whitespace) to avoid false matches.
+    // Note: ● is intentionally excluded — it appears in Claude Code's status bar
+    // as an effort indicator (e.g. "● high", "● low") and causes false positives.
+    private static let spinnerPattern = #"(?m)^\s*[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]"#
 
     // Claude Code status bar signatures (at least one must be present).
     private static let statusBarPatterns: [(pattern: String, options: String.CompareOptions)] = [

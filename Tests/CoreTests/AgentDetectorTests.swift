@@ -35,8 +35,17 @@ final class AgentDetectorTests: XCTestCase {
 
     func testDetectsWorkingTool() {
         let detector = makeDetector()
-        detector.analyzeText("Read file.swift\nContent follows...")
+        // Tool name pattern now requires a leading spinner to avoid false positives
+        // on code output like "// Read the file" or "Error: Read permission denied"
+        detector.analyzeText("⠙ Read file.swift\nContent follows...")
         XCTAssertEqual(detector.state, .working)
+    }
+
+    func testToolNameWithoutSpinnerDoesNotTriggerWorking() {
+        let detector = makeDetector()
+        // Bare tool name in code output should NOT trigger working state
+        detector.analyzeText("// Read the file contents\nreturn data")
+        XCTAssertEqual(detector.state, .inactive)
     }
 
     func testNeedsInputPriority() {

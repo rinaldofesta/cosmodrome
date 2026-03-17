@@ -32,7 +32,7 @@ public enum AgentPatterns {
                 ),
                 AgentPattern(
                     state: .working,
-                    regex: #"[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏●]"#,
+                    regex: #"[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]"#,
                     lastLineOnly: true,
                     priority: 25
                 ),
@@ -44,7 +44,7 @@ public enum AgentPatterns {
                 ),
                 AgentPattern(
                     state: .working,
-                    regex: #"(Read|Write|Execute|Bash|Search|Glob|Grep|Edit|Agent)\s"#,
+                    regex: #"[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]\s*(Read|Write|Execute|Bash|Search|Glob|Grep|Edit|Agent)\s"#,
                     lastLineOnly: false,
                     priority: 10
                 ),
@@ -110,7 +110,7 @@ public enum AgentPatterns {
                 ),
                 AgentPattern(
                     state: .working,
-                    regex: #"[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏●]"#,
+                    regex: #"[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]"#,
                     lastLineOnly: true,
                     priority: 25
                 ),
