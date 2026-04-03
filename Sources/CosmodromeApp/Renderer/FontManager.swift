@@ -19,7 +19,8 @@ final class FontManager {
     let defaultFontSize: CGFloat
 
     init(config: Core.UserConfig.FontConfig? = nil, scale: CGFloat = 2.0) {
-        let family = config?.family ?? "JetBrainsMono Nerd Font Mono"
+        let requested = config?.family ?? "JetBrainsMono Nerd Font Mono"
+        let family = FontManager.resolvedFamily(requested, fallback: "Menlo")
         let size = config?.size.map { CGFloat($0) } ?? 13
         let lineHeight = config?.lineHeight.map { CGFloat($0) } ?? 1.2
         self.family = family
@@ -106,6 +107,15 @@ final class FontManager {
             height: ceil((ascent + descent + leading) * lineHeight),
             baseline: round(ascent)
         )
+    }
+
+    /// Returns `requested` if a font by that name exists, otherwise `fallback`.
+    private static func resolvedFamily(_ requested: String, fallback: String) -> String {
+        let probe = CTFontCreateWithName(requested as CFString, 12, nil)
+        let actualFamily = CTFontCopyFamilyName(probe) as String
+        return actualFamily.localizedCaseInsensitiveCompare(requested) == .orderedSame
+            ? requested
+            : fallback
     }
 
     /// Get the CTFont for a given variant.
