@@ -123,6 +123,7 @@ Download the latest `.dmg` from [GitHub Releases](https://github.com/rinaldofest
 ### Homebrew Cask
 
 ```bash
+brew tap rinaldofesta/cosmodrome
 brew install --cask cosmodrome
 ```
 
